@@ -6,8 +6,11 @@ const UPDATE_INTERVAL = 1000; // 1 second
 const SAVE_INTERVAL = 60000; // 60 seconds
 const SAVE_KEY = "zonerunners_save_v1";
 const DEFAULT_BARRIER_HEALTH = 10;
+const WAVES_PER_LEVEL = 10;
 const LEVELS_PER_TILE = 50;
 const LEVELS_PER_ZONE = 100;
+const BOSS_HEALTH_MULTIPLIER = 50;
+const ZONE_BOSS_HEALTH_MULTIPLIER = 250;
 
 const RELIC_TYPES = [
     "STRENGTH", "SCOOP", "STEAL", "SIDEKICK",
@@ -365,78 +368,80 @@ class GameState {
             leader.barrierHealth -= totalDPS;
 
             if (leader.barrierHealth <= 0) {
-                // Level Complete logic (1 level per barrier break?)
-                // Assuming 1 barrier = 1 level for simplicity
+                // Wave Complete
+                leader.wave++;
 
-                // But waves? "Each tile... representing a single wave or level".
-                // If 1 tile = 50 levels.
-                // It means you fight 50 barriers (levels) on one tile before moving.
+                let maxWaves = this.getWavesForLevel(leader.globalLevel);
 
-                leader.levelInZone++;
-                leader.globalLevel++;
+                if (leader.wave > maxWaves) {
+                    // Level Complete
+                    leader.levelInZone++;
+                    leader.globalLevel++;
+                    leader.wave = 1;
 
-                // Sync group
-                group.forEach(r => {
-                    r.levelInZone = leader.levelInZone;
-                    r.globalLevel = leader.globalLevel;
+                    // Sync group
+                    group.forEach(r => {
+                        r.levelInZone = leader.levelInZone;
+                        r.globalLevel = leader.globalLevel;
+                        r.wave = 1;
 
-                    r.zpCollected += 1;
-                    r.dps += r.getDPSGain();
+                        r.zpCollected += 1;
+                        r.dps += r.getDPSGain();
 
-                    // Steal (Every 10 levels)
-                    if (r.globalLevel % 10 === 0) {
-                        const stealTier = r.relicsSnapshot["STEAL"] || 0;
-                        if (Math.random() < (stealTier * 0.025)) {
-                             r.zpCollected += 1;
-                             this.log(`${r.name} STOLE extra ZP!`);
-                        }
-                    }
-
-                    // Fragment
-                    if (Math.random() < 0.1) this.awardFragment(r);
-
-                    // Map Piece (Scan)
-                    let z = Math.floor(r.globalLevel / LEVELS_PER_ZONE);
-                    if (!this.completedMaps[z]) {
-                        const scanTier = r.relicsSnapshot["SCAN"] || 0;
-                        const chance = 0.05 + (scanTier * 0.001);
-                        if (Math.random() < chance) {
-                            if (!this.mapPieces[z]) this.mapPieces[z] = 0;
-                            this.mapPieces[z]++;
-                            this.log(`${r.name} found Map Piece (Zone ${z+1})!`);
-                            if (this.mapPieces[z] >= 5) {
-                                this.completedMaps[z] = true;
-                                this.log(`Zone ${z+1} Map Completed!`);
+                        // Steal (Every 10 levels)
+                        if (r.globalLevel % 10 === 0) {
+                            const stealTier = r.relicsSnapshot["STEAL"] || 0;
+                            if (Math.random() < (stealTier * 0.025)) {
+                                 r.zpCollected += 1;
+                                 this.log(`${r.name} STOLE extra ZP!`);
                             }
                         }
+
+                        // Fragment
+                        if (Math.random() < 0.1) this.awardFragment(r);
+
+                        // Map Piece (Scan)
+                        let z = Math.floor((r.globalLevel - 1) / LEVELS_PER_ZONE);
+                        if (!this.completedMaps[z]) {
+                            const scanTier = r.relicsSnapshot["SCAN"] || 0;
+                            const chance = 0.05 + (scanTier * 0.001);
+                            if (Math.random() < chance) {
+                                if (!this.mapPieces[z]) this.mapPieces[z] = 0;
+                                this.mapPieces[z]++;
+                                this.log(`${r.name} found Map Piece (Zone ${z+1})!`);
+                                if (this.mapPieces[z] >= 5) {
+                                    this.completedMaps[z] = true;
+                                    this.log(`Zone ${z+1} Map Completed!`);
+                                }
+                            }
+                        }
+                    });
+
+                    // Check Movement (Every 50 levels)
+                    if (leader.globalLevel % LEVELS_PER_TILE === 1 && leader.globalLevel > 1) {
+                        this.moveVisualStep(group);
                     }
-                });
 
-                // Check Movement (Every 50 levels)
-                // Levels 1..50 -> Step 0.
-                // Level 51 -> Step 1.
-                // So if (globalLevel % 50 === 1) -> Move?
-                // Or if (previousLevel % 50 === 0).
-
-                if (leader.globalLevel % LEVELS_PER_TILE === 1 && leader.globalLevel > 1) {
-                    this.moveVisualStep(group);
-                }
-
-                // Zone Conquest Check (End of Zone, e.g. Level 100, 200...)
-                if ((leader.globalLevel % LEVELS_PER_ZONE) === 0) {
-                    let z = (leader.globalLevel / LEVELS_PER_ZONE) - 1;
-                    if (!this.conqueredZones.includes(z)) {
-                        this.conqueredZones.push(z);
-                        this.log(`Zone ${z+1} CONQUERED! Road built.`);
+                    // Zone Conquest Check (End of Zone)
+                    if (((leader.globalLevel - 1) % LEVELS_PER_ZONE) === 99) {
+                        let z = Math.floor((leader.globalLevel - 1) / LEVELS_PER_ZONE);
+                        if (!this.conqueredZones.includes(z)) {
+                            this.conqueredZones.push(z);
+                            this.log(`Zone ${z+1} CONQUERED! Road built.`);
+                        }
                     }
-                }
 
-                // Highest Zone
-                let z = Math.floor(leader.globalLevel / LEVELS_PER_ZONE);
-                if (z > this.highestReachedZone) this.highestReachedZone = z;
+                    // Highest Zone
+                    let z = Math.floor((leader.globalLevel - 1) / LEVELS_PER_ZONE);
+                    if (z > this.highestReachedZone) this.highestReachedZone = z;
+                } else {
+                    // Just a wave update for the group
+                    group.forEach(r => r.wave = leader.wave);
+                }
 
                 // Reset Barrier
-                group.forEach(r => r.barrierHealth = this.calculateBarrierHealth(r.globalLevel));
+                let newHP = this.calculateBarrierHealth(leader.globalLevel, leader.wave);
+                group.forEach(r => r.barrierHealth = newHP);
             } else {
                 group.forEach(r => r.barrierHealth = leader.barrierHealth);
             }
@@ -493,10 +498,33 @@ class GameState {
         }
     }
 
-    calculateBarrierHealth(globalLevel) {
-        // Scale based on Zone? 10 * 1.1^Zone
+    getWavesForLevel(globalLevel) {
+        // Boss levels (every 10th) have 1 wave
+        if (globalLevel % 10 === 0) return 1;
+        return WAVES_PER_LEVEL;
+    }
+
+    calculateBarrierHealth(globalLevel, wave) {
+        // Zone index (0-based)
         let zone = Math.floor((globalLevel - 1) / LEVELS_PER_ZONE);
-        return Math.floor(10 * Math.pow(1.1, zone));
+        let levelInZone = ((globalLevel - 1) % LEVELS_PER_ZONE) + 1;
+
+        let base = DEFAULT_BARRIER_HEALTH;
+        // zone^1.5 * level^1.2 * 1.1
+        // We use Math.max(1, ...) to avoid 0 issues
+        let zoneFactor = Math.pow(Math.max(1, zone + 1), 1.5);
+        let levelFactor = Math.pow(Math.max(1, levelInZone), 1.2);
+
+        let health = base * zoneFactor * levelFactor * 1.1;
+
+        // Multipliers
+        if (levelInZone === LEVELS_PER_ZONE) {
+             health *= ZONE_BOSS_HEALTH_MULTIPLIER;
+        } else if (levelInZone % 10 === 0) {
+             health *= BOSS_HEALTH_MULTIPLIER;
+        }
+
+        return Math.floor(health);
     }
 
     warpRunner(runner, index) {
@@ -595,6 +623,7 @@ class GameState {
             let z = Math.floor((r.globalLevel - 1) / LEVELS_PER_ZONE) + 1;
             let div = document.createElement('div');
             div.className = 'tracker-item';
+            let maxW = this.getWavesForLevel(r.globalLevel);
             div.innerHTML = `
                 <div class="tracker-header">
                     <span>${r.getEmoji()} ${r.name}</span>
@@ -602,6 +631,7 @@ class GameState {
                 </div>
                 <div class="tracker-details">
                     ZP: ${r.zpCollected}/${r.getCap()} | HP: ${Math.floor(r.barrierHealth)} | DPS: ${Math.floor(r.dps)}
+                    <br>Wave: ${r.wave}/${maxW}
                 </div>
             `;
             list.appendChild(div);
