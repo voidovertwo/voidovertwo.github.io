@@ -6,7 +6,6 @@ const UPDATE_INTERVAL = 1000; // 1 second
 const SAVE_KEY = "zonerunners_save_v1";
 const DEFAULT_BARRIER_HEALTH = 10;
 
-// Relic Definitions (SYNTH removed)
 const RELIC_TYPES = [
     "STRENGTH", "SCOOP", "STEAL", "SIDEKICK",
     "SPEED", "STYLE", "SUPPLY", "SCAN"
@@ -17,7 +16,6 @@ const STYLE_EMOJIS = {
     10: "🚙", 12: "🚑", 14: "🚐", 16: "🚚", 18: "🚌", 20: "🚛"
 };
 
-// Environments (Background Emoji Sets)
 const ENVIRONMENTS = [
     ["🟨","🌵"],
     ["⛰️","🏔","🌋","🗻"],
@@ -29,15 +27,13 @@ class Runner {
     constructor(id, name, dps, globalRelics) {
         this.id = id;
         this.name = name;
-        this.dps = dps; // Base DPS (cost)
+        this.dps = dps;
 
-        // Position
-        this.zone = 0; // Maps to MapSegment index
-        this.level = 1; // Total steps taken
-        this.step = 0; // Index in segment.pathCoordinates
+        this.zone = 0;
+        this.level = 1;
+        this.step = 0;
         this.wave = 1;
 
-        // Progress State
         this.barrierHealth = DEFAULT_BARRIER_HEALTH;
         this.zpCollected = 0;
         this.fragmentsCollected = {};
@@ -50,25 +46,21 @@ class Runner {
     getEffectiveDPS(globalRelics, caravanSize, runnersAhead, highestReachedZone, mapCompleted) {
         let eff = this.dps;
 
-        // SIDEKICK
         if (caravanSize > 1) {
             const sidekick = globalRelics["SIDEKICK"] || 0;
             eff *= (1 + (sidekick * 0.025));
         }
 
-        // SUPPLY
         if (runnersAhead > 0) {
             const supply = globalRelics["SUPPLY"] || 0;
             eff *= (1 + (runnersAhead * supply * 0.005));
         }
 
-        // SPEED (If road constructed -> Zone < Highest Reached)
         if (this.zone < highestReachedZone) {
             const speed = globalRelics["SPEED"] || 0;
             eff *= (1 + (speed * 0.025));
         }
 
-        // Map Completion Bonus (+5 Flat)
         if (mapCompleted) {
             eff += 5;
         }
@@ -76,7 +68,6 @@ class Runner {
         return eff;
     }
 
-    // DPS Gain per level (Strength)
     getDPSGain(globalRelics) {
         let base = 0.5;
         const str = globalRelics["STRENGTH"] || 0;
@@ -171,10 +162,43 @@ class MapSegment {
         this.pathCoordinates = path;
     }
 
-    render(runnersOnThisSegment = [], globalRelics) {
+    render(runnersOnThisSegment = [], globalRelics, maxStepExplored = -1, isRoadConstructed = false) {
         let visualGrid = this.grid.map(row => [...row]);
-        let mapPosCounts = {};
 
+        // 1. Calculate Visibility (Fog of War)
+        // Set of visible "x,y" strings
+        let visibleSet = new Set();
+
+        // Special case: Oasis on Segment 0 is always visible
+        if (this.index === 0) {
+            // Oasis at 7,1. Range 1 = 6,0 to 8,2
+            for(let oy=0; oy<=2; oy++) {
+                for(let ox=6; ox<=8; ox++) {
+                    visibleSet.add(`${ox},${oy}`);
+                }
+            }
+        }
+
+        // Visible based on explored path
+        // Explore up to maxStepExplored
+        // If maxStepExplored is -1 (unexplored), nothing from path is shown
+        // But if isRoadConstructed is true, assume full visibility? Or map complete?
+        // Let's stick to exploration.
+
+        if (maxStepExplored >= 0) {
+            for (let i = 0; i <= maxStepExplored && i < this.pathCoordinates.length; i++) {
+                let p = this.pathCoordinates[i];
+                // Reveal radius 1 around path node
+                for(let dy=-1; dy<=1; dy++){
+                    for(let dx=-1; dx<=1; dx++){
+                        visibleSet.add(`${p.x + dx},${p.y + dy}`);
+                    }
+                }
+            }
+        }
+
+        // 2. Overlay Runners & Apply Fog
+        let mapPosCounts = {};
         runnersOnThisSegment.forEach(runner => {
             if (runner.step < this.pathCoordinates.length) {
                 let pos = this.pathCoordinates[runner.step];
@@ -184,10 +208,25 @@ class MapSegment {
             }
         });
 
-        for (let key in mapPosCounts) {
-            let [x, y] = key.split(',').map(Number);
-            let group = mapPosCounts[key];
-            visualGrid[y][x] = group[0].getEmoji(globalRelics);
+        // 3. Render
+        for (let y = 0; y < visualGrid.length; y++) {
+            for (let x = 0; x < visualGrid[y].length; x++) {
+                let key = `${x},${y}`;
+
+                // Fog Check
+                if (!visibleSet.has(key)) {
+                    visualGrid[y][x] = "☁️";
+                    continue; // Skip rendering content under fog
+                }
+
+                // Runner Overlay
+                if (mapPosCounts[key]) {
+                    visualGrid[y][x] = mapPosCounts[key][0].getEmoji(globalRelics);
+                } else if (visualGrid[y][x] === '⬛' && isRoadConstructed) {
+                    // Road Visual
+                    visualGrid[y][x] = "🛣️";
+                }
+            }
         }
 
         return visualGrid.map(row => row.join('')).join('\n');
@@ -205,10 +244,12 @@ class GameState {
         this.mapSegments = [];
         this.activePatternIndex = -1;
 
-        // Progress Tracking
         this.highestReachedZone = 0;
-        this.mapPieces = {}; // { zoneIndex: count }
-        this.completedMaps = {}; // { zoneIndex: bool }
+        this.mapPieces = {};
+        this.completedMaps = {};
+
+        // Tracking max step explored per zone
+        this.maxStepPerZone = {}; // { zoneIndex: stepIndex }
 
         RELIC_TYPES.forEach(type => {
             this.relics[type] = 0;
@@ -233,9 +274,22 @@ class GameState {
         this.loopId = setInterval(() => this.update(), UPDATE_INTERVAL);
     }
 
+    log(msg) {
+        const logContainer = document.getElementById('game-log-content');
+        if (!logContainer) return;
+
+        const entry = document.createElement('div');
+        entry.className = 'log-entry';
+        entry.textContent = `> ${msg}`;
+        logContainer.prepend(entry);
+
+        // Limit log size
+        if (logContainer.children.length > 50) {
+            logContainer.lastChild.remove();
+        }
+    }
+
     update() {
-        // Prepare data for Supply calculation (count runners ahead)
-        // Sort runners by progress descending
         let sortedRunners = [...this.runners].sort((a, b) => {
             if (a.zone !== b.zone) return b.zone - a.zone;
             return b.step - a.step;
@@ -248,9 +302,14 @@ class GameState {
             if (!caravans[key]) caravans[key] = [];
             caravans[key].push(r);
 
-            // Update highest zone reached
+            // Update highest zone
             if (r.zone > this.highestReachedZone) {
                 this.highestReachedZone = r.zone;
+            }
+
+            // Update Max Step Explored
+            if (this.maxStepPerZone[r.zone] === undefined || r.step > this.maxStepPerZone[r.zone]) {
+                this.maxStepPerZone[r.zone] = r.step;
             }
         });
 
@@ -312,7 +371,7 @@ class GameState {
     moveGroup(group) {
         group.forEach(r => {
             r.zpCollected += 1;
-            r.level++; // Increment total level
+            r.level++;
 
             if (Math.random() < 0.1) {
                 this.awardFragment(r);
@@ -323,26 +382,28 @@ class GameState {
                 const stealTier = this.relics["STEAL"] || 0;
                 if (Math.random() < (stealTier * 0.025)) {
                      r.zpCollected += 1;
+                     this.log(`${r.name} STOLE extra ZP!`);
                 }
             }
 
             // Map Piece Chance (SCAN)
             if (!this.completedMaps[r.zone]) {
                 const scanTier = this.relics["SCAN"] || 0;
-                const baseChance = 0.05; // 5% base
+                const baseChance = 0.05;
                 const chance = baseChance + (scanTier * 0.001);
 
                 if (Math.random() < chance) {
                     if (!this.mapPieces[r.zone]) this.mapPieces[r.zone] = 0;
                     this.mapPieces[r.zone]++;
+                    this.log(`${r.name} found Map Piece!`);
 
                     if (this.mapPieces[r.zone] >= 5) {
                         this.completedMaps[r.zone] = true;
+                        this.log(`Zone ${r.zone + 1} Map Completed!`);
                     }
                 }
             }
 
-            // Advance
             r.step++;
             r.wave = 1;
 
@@ -352,6 +413,7 @@ class GameState {
             if (r.step >= currentSegment.pathCoordinates.length) {
                 r.zone++;
                 r.step = 0;
+                this.log(`${r.name} entered Zone ${r.zone + 1}`);
             }
 
             r.barrierHealth = this.calculateBarrierHealth(r.zone);
@@ -361,11 +423,13 @@ class GameState {
     awardFragment(runner) {
         let type = RELIC_TYPES[Math.floor(Math.random() * RELIC_TYPES.length)];
         runner.fragmentsCollected[type]++;
+        this.log(`${runner.name} found ${type} fragment`);
 
         const scoopTier = this.relics["SCOOP"] || 0;
         if (Math.random() < (scoopTier * 0.025)) {
              let bonusType = RELIC_TYPES[Math.floor(Math.random() * RELIC_TYPES.length)];
              runner.fragmentsCollected[bonusType]++;
+             this.log(`${runner.name} SCOOPED extra ${bonusType} fragment!`);
         }
     }
 
@@ -381,7 +445,7 @@ class GameState {
         }
 
         this.runners.splice(index, 1);
-        console.log(`Warped ${runner.name} with ${runner.zpCollected} ZP`);
+        this.log(`🌀 ${runner.name} warped! +${runner.zpCollected} ZP`);
     }
 
     getRunnerCost() {
@@ -399,6 +463,8 @@ class GameState {
             let runner = new Runner(id, name, cost, this.relics);
             this.runners.push(runner);
 
+            this.log(`🚀 ${name} sent to Zone 1`);
+
             this.updateGlobalZPDisplay();
             this.updateCostDisplay();
             this.save();
@@ -415,6 +481,7 @@ class GameState {
         if (this.relicFragments[type] >= cost) {
             this.relicFragments[type] -= cost;
             this.relics[type]++;
+            this.log(`Upgraded ${type} to Tier ${this.relics[type]}`);
             this.save();
             this.renderRelics();
         }
@@ -517,9 +584,25 @@ class GameState {
 
             let seg = this.mapSegments[i];
             let segRunners = this.runners.filter(r => r.zone === seg.index);
+
+            // Determine max explored step for this specific segment
+            // Default to -1 (nothing explored)
+            let exploredStep = this.maxStepPerZone[i];
+            if (exploredStep === undefined) {
+                // If we have runners in higher zones, this zone is fully explored
+                if (i < maxZone) {
+                    exploredStep = 9999;
+                } else {
+                    exploredStep = -1;
+                }
+            }
+
+            // Check if road is constructed (Zone index < highestReachedZone)
+            let isRoad = i < this.highestReachedZone;
+
             const div = document.createElement('div');
             div.className = 'map-segment';
-            div.textContent = seg.render(segRunners, this.relics);
+            div.textContent = seg.render(segRunners, this.relics, exploredStep, isRoad);
             container.appendChild(div);
         }
     }
@@ -538,10 +621,10 @@ class GameState {
                 fragmentsCollected: r.fragmentsCollected
             })),
             activePatternIndex: this.activePatternIndex,
-            // New state
             highestReachedZone: this.highestReachedZone,
             mapPieces: this.mapPieces,
-            completedMaps: this.completedMaps
+            completedMaps: this.completedMaps,
+            maxStepPerZone: this.maxStepPerZone
         };
         localStorage.setItem(SAVE_KEY, JSON.stringify(data));
     }
@@ -560,12 +643,13 @@ class GameState {
                 this.highestReachedZone = data.highestReachedZone || 0;
                 this.mapPieces = data.mapPieces || {};
                 this.completedMaps = data.completedMaps || {};
+                this.maxStepPerZone = data.maxStepPerZone || {};
 
                 if (data.runners) {
                     this.runners = data.runners.map(d => {
                         let r = new Runner(d.id, d.name, d.dps, this.relics);
                         r.zone = d.zone;
-                        r.level = d.level || 1; // Default for backward compat (though new feature)
+                        r.level = d.level || 1;
                         r.step = d.step;
                         r.wave = d.wave;
                         r.barrierHealth = d.barrierHealth;

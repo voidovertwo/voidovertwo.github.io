@@ -158,7 +158,7 @@ h2 {
 
 /* Tracker List */
 #tracker-list {
-    max-height: 300px;
+    max-height: 200px;
     overflow-y: auto;
     font-size: 0.9rem;
 }
@@ -185,6 +185,27 @@ h2 {
 .tracker-details {
     color: #aaa;
     font-size: 0.8rem;
+}
+
+/* Log */
+#game-log-content {
+    max-height: 150px;
+    overflow-y: auto;
+    font-size: 0.85rem;
+    font-family: monospace;
+    background: #111;
+    padding: 0.5rem;
+    border-radius: 4px;
+    display: flex;
+    flex-direction: column-reverse; /* Newest at top if using prepend? No, CSS column-reverse puts bottom element at top visually if not careful. Let's rely on prepend logic in JS and normal flow. */
+    /* Actually simple flex-col is fine if we prepend in JS */
+    flex-direction: column;
+}
+
+.log-entry {
+    margin-bottom: 4px;
+    border-bottom: 1px solid #222;
+    padding-bottom: 2px;
 }
 
 /* Map Area */
