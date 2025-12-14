@@ -6,6 +6,7 @@ const UPDATE_INTERVAL = 1000; // 1 second
 const SAVE_KEY = "zonerunners_save_v1";
 const DEFAULT_BARRIER_HEALTH = 10;
 
+// Relic Definitions (SYNTH removed)
 const RELIC_TYPES = [
     "STRENGTH", "SCOOP", "STEAL", "SIDEKICK",
     "SPEED", "STYLE", "SUPPLY", "SCAN"
@@ -16,6 +17,7 @@ const STYLE_EMOJIS = {
     10: "🚙", 12: "🚑", 14: "🚐", 16: "🚚", 18: "🚌", 20: "🚛"
 };
 
+// Environments (Background Emoji Sets)
 const ENVIRONMENTS = [
     ["🟨","🌵"],
     ["⛰️","🏔","🌋","🗻"],
@@ -27,13 +29,15 @@ class Runner {
     constructor(id, name, dps, globalRelics) {
         this.id = id;
         this.name = name;
-        this.dps = dps;
+        this.dps = dps; // Base DPS (cost)
 
-        this.zone = 0;
-        this.level = 1;
-        this.step = 0;
+        // Position
+        this.zone = 0; // Maps to MapSegment index
+        this.level = 1; // Total steps taken (for level logic)
+        this.step = 0; // Index in segment.pathCoordinates
         this.wave = 1;
 
+        // Progress State
         this.barrierHealth = DEFAULT_BARRIER_HEALTH;
         this.zpCollected = 0;
         this.fragmentsCollected = {};
@@ -46,21 +50,25 @@ class Runner {
     getEffectiveDPS(globalRelics, caravanSize, runnersAhead, highestReachedZone, mapCompleted) {
         let eff = this.dps;
 
+        // SIDEKICK
         if (caravanSize > 1) {
             const sidekick = globalRelics["SIDEKICK"] || 0;
             eff *= (1 + (sidekick * 0.025));
         }
 
+        // SUPPLY
         if (runnersAhead > 0) {
             const supply = globalRelics["SUPPLY"] || 0;
             eff *= (1 + (runnersAhead * supply * 0.005));
         }
 
+        // SPEED (If road constructed -> Zone < Highest Reached)
         if (this.zone < highestReachedZone) {
             const speed = globalRelics["SPEED"] || 0;
             eff *= (1 + (speed * 0.025));
         }
 
+        // Map Completion Bonus (+5 Flat)
         if (mapCompleted) {
             eff += 5;
         }
@@ -68,6 +76,7 @@ class Runner {
         return eff;
     }
 
+    // DPS Gain per level (Strength)
     getDPSGain(globalRelics) {
         let base = 0.5;
         const str = globalRelics["STRENGTH"] || 0;
@@ -165,13 +174,9 @@ class MapSegment {
     render(runnersOnThisSegment = [], globalRelics, maxStepExplored = -1, isRoadConstructed = false) {
         let visualGrid = this.grid.map(row => [...row]);
 
-        // 1. Calculate Visibility (Fog of War)
-        // Set of visible "x,y" strings
         let visibleSet = new Set();
 
-        // Special case: Oasis on Segment 0 is always visible
         if (this.index === 0) {
-            // Oasis at 7,1. Range 1 = 6,0 to 8,2
             for(let oy=0; oy<=2; oy++) {
                 for(let ox=6; ox<=8; ox++) {
                     visibleSet.add(`${ox},${oy}`);
@@ -179,16 +184,9 @@ class MapSegment {
             }
         }
 
-        // Visible based on explored path
-        // Explore up to maxStepExplored
-        // If maxStepExplored is -1 (unexplored), nothing from path is shown
-        // But if isRoadConstructed is true, assume full visibility? Or map complete?
-        // Let's stick to exploration.
-
         if (maxStepExplored >= 0) {
             for (let i = 0; i <= maxStepExplored && i < this.pathCoordinates.length; i++) {
                 let p = this.pathCoordinates[i];
-                // Reveal radius 1 around path node
                 for(let dy=-1; dy<=1; dy++){
                     for(let dx=-1; dx<=1; dx++){
                         visibleSet.add(`${p.x + dx},${p.y + dy}`);
@@ -197,7 +195,6 @@ class MapSegment {
             }
         }
 
-        // 2. Overlay Runners & Apply Fog
         let mapPosCounts = {};
         runnersOnThisSegment.forEach(runner => {
             if (runner.step < this.pathCoordinates.length) {
@@ -208,22 +205,18 @@ class MapSegment {
             }
         });
 
-        // 3. Render
         for (let y = 0; y < visualGrid.length; y++) {
             for (let x = 0; x < visualGrid[y].length; x++) {
                 let key = `${x},${y}`;
 
-                // Fog Check
                 if (!visibleSet.has(key)) {
                     visualGrid[y][x] = "☁️";
-                    continue; // Skip rendering content under fog
+                    continue;
                 }
 
-                // Runner Overlay
                 if (mapPosCounts[key]) {
                     visualGrid[y][x] = mapPosCounts[key][0].getEmoji(globalRelics);
                 } else if (visualGrid[y][x] === '⬛' && isRoadConstructed) {
-                    // Road Visual
                     visualGrid[y][x] = "🛣️";
                 }
             }
@@ -248,8 +241,7 @@ class GameState {
         this.mapPieces = {};
         this.completedMaps = {};
 
-        // Tracking max step explored per zone
-        this.maxStepPerZone = {}; // { zoneIndex: stepIndex }
+        this.maxStepPerZone = {};
 
         RELIC_TYPES.forEach(type => {
             this.relics[type] = 0;
@@ -283,7 +275,6 @@ class GameState {
         entry.textContent = `> ${msg}`;
         logContainer.prepend(entry);
 
-        // Limit log size
         if (logContainer.children.length > 50) {
             logContainer.lastChild.remove();
         }
@@ -302,12 +293,10 @@ class GameState {
             if (!caravans[key]) caravans[key] = [];
             caravans[key].push(r);
 
-            // Update highest zone
             if (r.zone > this.highestReachedZone) {
                 this.highestReachedZone = r.zone;
             }
 
-            // Update Max Step Explored
             if (this.maxStepPerZone[r.zone] === undefined || r.step > this.maxStepPerZone[r.zone]) {
                 this.maxStepPerZone[r.zone] = r.step;
             }
@@ -377,7 +366,7 @@ class GameState {
                 this.awardFragment(r);
             }
 
-            // STEAL (Every 10 levels)
+            // STEAL (Every 10 levels/steps)
             if (r.level % 10 === 0) {
                 const stealTier = this.relics["STEAL"] || 0;
                 if (Math.random() < (stealTier * 0.025)) {
@@ -386,7 +375,6 @@ class GameState {
                 }
             }
 
-            // Map Piece Chance (SCAN)
             if (!this.completedMaps[r.zone]) {
                 const scanTier = this.relics["SCAN"] || 0;
                 const baseChance = 0.05;
@@ -665,6 +653,8 @@ class GameState {
     }
 
     resetSave() {
+        if (this.loopId) clearInterval(this.loopId);
+        this.loopId = null;
         localStorage.removeItem(SAVE_KEY);
         location.reload();
     }
