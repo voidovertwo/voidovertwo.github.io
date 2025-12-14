@@ -25,7 +25,7 @@ body {
 
 #game-layout {
     display: grid;
-    grid-template-columns: 300px 250px 300px 1fr; /* Fixed widths for first 3, Map takes rest */
+    grid-template-columns: 300px 250px 300px 1fr;
     height: 100%;
     width: 100%;
 }
@@ -36,11 +36,10 @@ body {
     display: flex;
     flex-direction: column;
     height: 100%;
-    overflow: hidden; /* Internal scrolling handled by children */
+    overflow: hidden;
     padding: 0;
 }
 
-/* Specific Column Tweaks */
 #col-main {
     padding: 1rem;
     overflow-y: auto;
@@ -69,7 +68,6 @@ body {
     border: none;
 }
 
-/* Main Column Styles */
 h1 {
     text-align: center;
     margin-bottom: 1.5rem;
@@ -111,7 +109,6 @@ h2 {
     color: var(--pending-color);
 }
 
-/* Actions */
 .action-btn {
     width: 100%;
     padding: 1rem;
@@ -182,7 +179,6 @@ h2 {
     background-color: #d32f2f;
 }
 
-/* Tracker List */
 #tracker-list {
     flex-grow: 1;
     overflow-y: auto;
@@ -210,7 +206,6 @@ h2 {
     font-size: 0.85rem;
 }
 
-/* Log */
 #game-log-content {
     flex-grow: 1;
     overflow-y: auto;
@@ -227,7 +222,6 @@ h2 {
     line-height: 1.3;
 }
 
-/* Map Area */
 #map-scroll-area {
     flex-grow: 1;
     overflow-y: auto;
@@ -254,36 +248,40 @@ h2 {
     user-select: none;
 }
 
-/* Relics List */
 .relic-item {
     margin-bottom: 0.8rem;
     display: flex;
     flex-direction: column;
 }
+
 .relic-header {
     margin-bottom: 4px;
 }
+
 .relic-name {
     font-weight: bold;
     color: #ddd;
     font-size: 0.9rem;
 }
+
 .relic-stats {
     font-size: 0.8rem;
     color: #888;
 }
 
-/* Scrollbar styling */
 ::-webkit-scrollbar {
     width: 8px;
 }
+
 ::-webkit-scrollbar-track {
     background: #1e1e1e;
 }
+
 ::-webkit-scrollbar-thumb {
     background: #444;
     border-radius: 4px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
     background: #555;
 }

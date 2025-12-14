@@ -560,8 +560,13 @@ class GameState {
     }
 
     generateNextMapSegment() {
-        let availablePatterns = MAP_PATTERNS.map((p, i) => i).filter(i => i !== this.activePatternIndex);
-        let idx = availablePatterns[Math.floor(Math.random() * availablePatterns.length)];
+        let idx;
+        if (this.mapSegments.length === 0) {
+            idx = 0;
+        } else {
+            let availablePatterns = [1, 2, 3, 4].filter(i => i !== this.activePatternIndex);
+            idx = availablePatterns[Math.floor(Math.random() * availablePatterns.length)];
+        }
         this.activePatternIndex = idx;
 
         let prevEnv = this.mapSegments.length > 0 ? this.mapSegments[this.mapSegments.length - 1].environment : null;
