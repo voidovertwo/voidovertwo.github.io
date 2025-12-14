@@ -44,7 +44,6 @@ class Runner {
 
         this.globalLevel = 1; // Total levels cleared across all zones (for stats/logic)
 
-        this.step = 0; // Visual Step on current MapSegment path
         this.wave = 1;
 
         this.barrierHealth = DEFAULT_BARRIER_HEALTH;
@@ -314,31 +313,11 @@ class GameState {
             return b.levelInZone - a.levelInZone; // Sub-sort by level progress
         });
 
-        // Group by Visual Step (Segment + Step Index)
+        // Group by Global Level (Caravans share exact progress)
         let caravans = {};
 
         this.runners.forEach(r => {
-            // Map segment index is NOT directly runner.zone
-            // We need to calculate which map segment the runner is visually on.
-            // But we simplify: Runner has `segmentIndex` and `stepIndex`.
-            // Wait, previously `runner.zone` mapped to `MapSegment index`.
-            // User requested 1 Tile = 50 Levels.
-            // 1 Zone = 100 Levels.
-            // So 1 Zone is not 1 Map Segment.
-            // A Map Segment is ~40 tiles. So ~20 Zones.
-            // Let's refactor: `Runner` tracks `currentSegmentIndex` and `stepInSegment`.
-            // We calculate `Zone` from `globalLevel`.
-
-            // Refactoring on the fly:
-            // Runner state:
-            // - globalLevel (Total levels cleared)
-            // - currentSegmentIndex (Which map segment)
-            // - stepInSegment (Which tile in that segment)
-
-            // Sync derived state
-            // Zone = floor(globalLevel / LEVELS_PER_ZONE)
-
-            let key = `${r.currentSegmentIndex}_${r.stepInSegment}`;
+            let key = `${r.globalLevel}`;
             if (!caravans[key]) caravans[key] = [];
             caravans[key].push(r);
 
