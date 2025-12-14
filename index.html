@@ -7,10 +7,10 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div id="game-container">
-        <!-- Left Sidebar: Actions & Stats -->
-        <div id="sidebar">
-            <h1>Zonerunners</h1>
+    <div id="game-layout">
+        <!-- Column 1: ZONERUNNERS (Controls/Stats) -->
+        <div id="col-main" class="game-column">
+            <h1>ZONERUNNERS</h1>
 
             <div id="global-stats" class="module">
                 <h2>Resources</h2>
@@ -39,34 +39,34 @@
                 </div>
             </div>
 
-            <div id="tracker-module" class="module">
-                <h2>The Tracker</h2>
-                <div id="tracker-list">
-                    <!-- Active runners/caravans -->
-                </div>
-            </div>
-
-            <div id="log-module" class="module">
-                <h2>The Log</h2>
-                <div id="game-log-content">
-                    <!-- Game events -->
-                </div>
-            </div>
-
              <div id="controls-module" class="module">
                 <h2>System</h2>
                 <button id="reset-save-btn" class="small-btn warning">Reset Save</button>
             </div>
         </div>
 
-        <!-- Right Main Area: Map -->
-        <div id="map-container">
-            <div id="map-header">
-                <h2>THE MAP</h2>
+        <!-- Column 2: THE TRACKER -->
+        <div id="col-tracker" class="game-column">
+            <div class="column-header"><h2>THE TRACKER</h2></div>
+            <div id="tracker-list">
+                <!-- Active runners -->
             </div>
+        </div>
+
+        <!-- Column 3: THE LOG -->
+        <div id="col-log" class="game-column">
+            <div class="column-header"><h2>THE LOG</h2></div>
+            <div id="game-log-content">
+                <!-- Logs -->
+            </div>
+        </div>
+
+        <!-- Column 4: THE MAP -->
+        <div id="col-map" class="game-column">
+            <div class="column-header"><h2>THE MAP</h2></div>
             <div id="map-scroll-area">
                 <div id="map-content">
-                    <!-- Map segments will be appended here -->
+                    <!-- Map segments -->
                 </div>
             </div>
         </div>

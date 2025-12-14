@@ -23,23 +23,53 @@ body {
     overflow: hidden;
 }
 
-#game-container {
-    display: flex;
+#game-layout {
+    display: grid;
+    grid-template-columns: 300px 250px 300px 1fr; /* Fixed widths for first 3, Map takes rest */
     height: 100%;
+    width: 100%;
 }
 
-/* Sidebar Styling */
-#sidebar {
-    width: 350px;
+.game-column {
     background-color: var(--panel-bg);
     border-right: 1px solid var(--border-color);
     display: flex;
     flex-direction: column;
+    height: 100%;
+    overflow: hidden; /* Internal scrolling handled by children */
+    padding: 0;
+}
+
+/* Specific Column Tweaks */
+#col-main {
     padding: 1rem;
     overflow-y: auto;
+}
+
+#col-tracker, #col-log, #col-map {
+    background-color: #181818;
+}
+
+#col-map {
+    background-color: var(--map-bg);
+}
+
+.column-header {
+    padding: 0.8rem;
+    background-color: #252525;
+    border-bottom: 1px solid var(--border-color);
+    text-align: center;
     flex-shrink: 0;
 }
 
+.column-header h2 {
+    margin: 0;
+    font-size: 1rem;
+    color: #aaa;
+    border: none;
+}
+
+/* Main Column Styles */
 h1 {
     text-align: center;
     margin-bottom: 1.5rem;
@@ -98,10 +128,6 @@ h2 {
     background-color: #43a047;
 }
 
-.action-btn:active {
-    transform: translateY(1px);
-}
-
 .action-btn:disabled {
     background-color: #555;
     cursor: not-allowed;
@@ -158,20 +184,17 @@ h2 {
 
 /* Tracker List */
 #tracker-list {
-    max-height: 200px;
+    flex-grow: 1;
     overflow-y: auto;
-    font-size: 0.9rem;
+    padding: 0.5rem;
 }
 
 .tracker-item {
-    padding: 0.5rem;
-    border-bottom: 1px solid #333;
-    display: flex;
-    flex-direction: column;
-}
-
-.tracker-item:last-child {
-    border-bottom: none;
+    padding: 0.8rem;
+    background: #222;
+    margin-bottom: 0.5rem;
+    border-radius: 4px;
+    border-left: 3px solid var(--accent-color);
 }
 
 .tracker-header {
@@ -179,68 +202,44 @@ h2 {
     justify-content: space-between;
     font-weight: bold;
     color: #fff;
-    margin-bottom: 2px;
+    margin-bottom: 4px;
 }
 
 .tracker-details {
     color: #aaa;
-    font-size: 0.8rem;
+    font-size: 0.85rem;
 }
 
 /* Log */
 #game-log-content {
-    max-height: 150px;
+    flex-grow: 1;
     overflow-y: auto;
     font-size: 0.85rem;
     font-family: monospace;
-    background: #111;
     padding: 0.5rem;
-    border-radius: 4px;
-    display: flex;
-    flex-direction: column-reverse; /* Newest at top if using prepend? No, CSS column-reverse puts bottom element at top visually if not careful. Let's rely on prepend logic in JS and normal flow. */
-    /* Actually simple flex-col is fine if we prepend in JS */
-    flex-direction: column;
+    color: #ccc;
 }
 
 .log-entry {
-    margin-bottom: 4px;
-    border-bottom: 1px solid #222;
-    padding-bottom: 2px;
+    margin-bottom: 6px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #2a2a2a;
+    line-height: 1.3;
 }
 
 /* Map Area */
-#map-container {
-    flex-grow: 1;
-    display: flex;
-    flex-direction: column;
-    background-color: var(--map-bg);
-    position: relative;
-}
-
-#map-header {
-    padding: 0.5rem 1rem;
-    background-color: rgba(30, 30, 30, 0.9);
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 10;
-    border-bottom: 1px solid var(--border-color);
-    text-align: center;
-}
-
 #map-scroll-area {
     flex-grow: 1;
     overflow-y: auto;
     overflow-x: hidden;
-    padding-top: 3rem; /* Space for header */
+    padding-top: 1rem;
     display: flex;
     justify-content: center;
 }
 
 #map-content {
     display: flex;
-    flex-direction: column; /* Column stack for infinite scroll */
+    flex-direction: column;
     align-items: center;
     padding-bottom: 2rem;
 }
@@ -249,8 +248,8 @@ h2 {
     font-family: 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
     line-height: 1.2;
     white-space: pre;
-    font-size: 1.5rem; /* Large emojis */
-    margin-bottom: 0; /* Continuous look */
+    font-size: 1.5rem;
+    margin-bottom: 0;
     text-align: center;
     user-select: none;
 }

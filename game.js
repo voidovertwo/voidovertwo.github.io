@@ -3,10 +3,12 @@ const BASE_ZP_CAP = 40;
 const COST_BASE = 10;
 const COST_MULTIPLIER = 1.1;
 const UPDATE_INTERVAL = 1000; // 1 second
+const SAVE_INTERVAL = 60000; // 60 seconds
 const SAVE_KEY = "zonerunners_save_v1";
 const DEFAULT_BARRIER_HEALTH = 10;
+const LEVELS_PER_TILE = 50;
+const LEVELS_PER_ZONE = 100;
 
-// Relic Definitions (SYNTH removed)
 const RELIC_TYPES = [
     "STRENGTH", "SCOOP", "STEAL", "SIDEKICK",
     "SPEED", "STYLE", "SUPPLY", "SCAN"
@@ -17,7 +19,6 @@ const STYLE_EMOJIS = {
     10: "🚙", 12: "🚑", 14: "🚐", 16: "🚚", 18: "🚌", 20: "🚛"
 };
 
-// Environments (Background Emoji Sets)
 const ENVIRONMENTS = [
     ["🟨","🌵"],
     ["⛰️","🏔","🌋","🗻"],
@@ -29,15 +30,20 @@ class Runner {
     constructor(id, name, dps, globalRelics) {
         this.id = id;
         this.name = name;
-        this.dps = dps; // Base DPS (cost)
+        this.dps = dps;
+
+        // Relic Snapshot
+        this.relicsSnapshot = { ...globalRelics };
 
         // Position
-        this.zone = 0; // Maps to MapSegment index
-        this.level = 1; // Total steps taken (for level logic)
-        this.step = 0; // Index in segment.pathCoordinates
+        this.zone = 0; // Current Zone Index (0-based)
+        this.levelInZone = 1; // 1 to 100
+
+        this.globalLevel = 1; // Total levels cleared across all zones (for stats/logic)
+
+        this.step = 0; // Visual Step on current MapSegment path
         this.wave = 1;
 
-        // Progress State
         this.barrierHealth = DEFAULT_BARRIER_HEALTH;
         this.zpCollected = 0;
         this.fragmentsCollected = {};
@@ -47,28 +53,25 @@ class Runner {
         this.isWarping = false;
     }
 
-    getEffectiveDPS(globalRelics, caravanSize, runnersAhead, highestReachedZone, mapCompleted) {
+    getEffectiveDPS(caravanSize, runnersAhead, highestReachedZone, mapCompleted) {
         let eff = this.dps;
+        const relics = this.relicsSnapshot;
 
-        // SIDEKICK
         if (caravanSize > 1) {
-            const sidekick = globalRelics["SIDEKICK"] || 0;
+            const sidekick = relics["SIDEKICK"] || 0;
             eff *= (1 + (sidekick * 0.025));
         }
 
-        // SUPPLY
         if (runnersAhead > 0) {
-            const supply = globalRelics["SUPPLY"] || 0;
+            const supply = relics["SUPPLY"] || 0;
             eff *= (1 + (runnersAhead * supply * 0.005));
         }
 
-        // SPEED (If road constructed -> Zone < Highest Reached)
         if (this.zone < highestReachedZone) {
-            const speed = globalRelics["SPEED"] || 0;
+            const speed = relics["SPEED"] || 0;
             eff *= (1 + (speed * 0.025));
         }
 
-        // Map Completion Bonus (+5 Flat)
         if (mapCompleted) {
             eff += 5;
         }
@@ -76,20 +79,19 @@ class Runner {
         return eff;
     }
 
-    // DPS Gain per level (Strength)
-    getDPSGain(globalRelics) {
+    getDPSGain() {
         let base = 0.5;
-        const str = globalRelics["STRENGTH"] || 0;
+        const str = this.relicsSnapshot["STRENGTH"] || 0;
         return base + (str * 0.1);
     }
 
-    getCap(globalRelics) {
-        const style = globalRelics["STYLE"] || 0;
+    getCap() {
+        const style = this.relicsSnapshot["STYLE"] || 0;
         return BASE_ZP_CAP + (style * 4);
     }
 
-    getEmoji(globalRelics) {
-        const tier = globalRelics["STYLE"] || 0;
+    getEmoji() {
+        const tier = this.relicsSnapshot["STYLE"] || 0;
         let t = Math.floor(tier / 2) * 2;
         if (t > 20) t = 20;
         return STYLE_EMOJIS[t] || "🛺";
@@ -102,6 +104,10 @@ class MapSegment {
         this.patternString = patternString;
         this.grid = [];
         this.pathCoordinates = [];
+
+        // Each segment is roughly 40 tiles. With 1 Zone = 2 Tiles (100 levels),
+        // 1 Segment = 20 Zones.
+        // We need to map visual tiles to zones.
 
         let availableEnvs = ENVIRONMENTS.filter(e => e !== previousEnvironment);
         if (index === 0) {
@@ -171,7 +177,7 @@ class MapSegment {
         this.pathCoordinates = path;
     }
 
-    render(runnersOnThisSegment = [], globalRelics, maxStepExplored = -1, isRoadConstructed = false) {
+    render(runnersOnThisSegment = [], conqueredZones = [], maxStepExplored = -1, globalTileOffset = 0) {
         let visualGrid = this.grid.map(row => [...row]);
 
         let visibleSet = new Set();
@@ -197,6 +203,8 @@ class MapSegment {
 
         let mapPosCounts = {};
         runnersOnThisSegment.forEach(runner => {
+            // runner.step is local to segment?
+            // Yes, standardizing on Runner.step being index in THIS segment's path
             if (runner.step < this.pathCoordinates.length) {
                 let pos = this.pathCoordinates[runner.step];
                 let key = `${pos.x},${pos.y}`;
@@ -215,9 +223,23 @@ class MapSegment {
                 }
 
                 if (mapPosCounts[key]) {
-                    visualGrid[y][x] = mapPosCounts[key][0].getEmoji(globalRelics);
-                } else if (visualGrid[y][x] === '⬛' && isRoadConstructed) {
-                    visualGrid[y][x] = "🛣️";
+                    visualGrid[y][x] = mapPosCounts[key][0].getEmoji();
+                } else if (visualGrid[y][x] === '⬛') {
+                    // Check if this specific tile belongs to a conquered zone
+                    // We need to map Local Tile Index -> Global Tile Index -> Zone
+                    // MapSegment needs to find index of (x,y) in pathCoordinates
+                    let pathIdx = this.pathCoordinates.findIndex(p => p.x === x && p.y === y);
+                    if (pathIdx !== -1) {
+                        let globalTileIndex = globalTileOffset + pathIdx;
+                        // 2 Tiles = 1 Zone (50 levels/tile, 100 levels/zone)
+                        // Tile 0, 1 -> Zone 0
+                        // Tile 2, 3 -> Zone 1
+                        let zoneForTile = Math.floor(globalTileIndex / 2);
+
+                        if (conqueredZones.includes(zoneForTile)) {
+                            visualGrid[y][x] = "🛣️";
+                        }
+                    }
                 }
             }
         }
@@ -240,8 +262,9 @@ class GameState {
         this.highestReachedZone = 0;
         this.mapPieces = {};
         this.completedMaps = {};
+        this.conqueredZones = []; // Array of Zone Indices
 
-        this.maxStepPerZone = {};
+        this.maxStepPerSegment = {}; // { segmentIndex: maxStep }
 
         RELIC_TYPES.forEach(type => {
             this.relics[type] = 0;
@@ -249,6 +272,7 @@ class GameState {
         });
 
         this.loopId = null;
+        this.saveLoopId = null;
     }
 
     start() {
@@ -264,6 +288,7 @@ class GameState {
         this.renderMap();
 
         this.loopId = setInterval(() => this.update(), UPDATE_INTERVAL);
+        this.saveLoopId = setInterval(() => this.save(), SAVE_INTERVAL);
     }
 
     log(msg) {
@@ -283,22 +308,40 @@ class GameState {
     update() {
         let sortedRunners = [...this.runners].sort((a, b) => {
             if (a.zone !== b.zone) return b.zone - a.zone;
-            return b.step - a.step;
+            return b.levelInZone - a.levelInZone; // Sub-sort by level progress
         });
 
+        // Group by Visual Step (Segment + Step Index)
         let caravans = {};
 
         this.runners.forEach(r => {
-            let key = `${r.zone}_${r.step}`;
+            // Map segment index is NOT directly runner.zone
+            // We need to calculate which map segment the runner is visually on.
+            // But we simplify: Runner has `segmentIndex` and `stepIndex`.
+            // Wait, previously `runner.zone` mapped to `MapSegment index`.
+            // User requested 1 Tile = 50 Levels.
+            // 1 Zone = 100 Levels.
+            // So 1 Zone is not 1 Map Segment.
+            // A Map Segment is ~40 tiles. So ~20 Zones.
+            // Let's refactor: `Runner` tracks `currentSegmentIndex` and `stepInSegment`.
+            // We calculate `Zone` from `globalLevel`.
+
+            // Refactoring on the fly:
+            // Runner state:
+            // - globalLevel (Total levels cleared)
+            // - currentSegmentIndex (Which map segment)
+            // - stepInSegment (Which tile in that segment)
+
+            // Sync derived state
+            // Zone = floor(globalLevel / LEVELS_PER_ZONE)
+
+            let key = `${r.currentSegmentIndex}_${r.stepInSegment}`;
             if (!caravans[key]) caravans[key] = [];
             caravans[key].push(r);
 
-            if (r.zone > this.highestReachedZone) {
-                this.highestReachedZone = r.zone;
-            }
-
-            if (this.maxStepPerZone[r.zone] === undefined || r.step > this.maxStepPerZone[r.zone]) {
-                this.maxStepPerZone[r.zone] = r.step;
+            // Fog of War
+            if (this.maxStepPerSegment[r.currentSegmentIndex] === undefined || r.stepInSegment > this.maxStepPerSegment[r.currentSegmentIndex]) {
+                this.maxStepPerSegment[r.currentSegmentIndex] = r.stepInSegment;
             }
         });
 
@@ -306,33 +349,94 @@ class GameState {
             let group = caravans[key];
             let leader = group[0];
 
-            let runnersAhead = sortedRunners.filter(r =>
-                (r.zone > leader.zone) || (r.zone === leader.zone && r.step > leader.step)
-            ).length;
+            // Approximation for runners ahead
+            let runnersAhead = sortedRunners.filter(r => r.globalLevel > leader.globalLevel).length;
+
+            let currentZone = Math.floor(leader.globalLevel / LEVELS_PER_ZONE);
 
             let totalDPS = group.reduce((sum, r) =>
                 sum + r.getEffectiveDPS(
-                    this.relics,
                     group.length,
                     runnersAhead,
                     this.highestReachedZone,
-                    this.completedMaps[r.zone]
+                    this.completedMaps[currentZone]
                 ), 0);
 
             leader.barrierHealth -= totalDPS;
 
             if (leader.barrierHealth <= 0) {
-                let requiredWaves = Math.ceil(leader.zone + 1);
-                leader.wave++;
+                // Level Complete logic (1 level per barrier break?)
+                // Assuming 1 barrier = 1 level for simplicity
 
-                if (leader.wave > requiredWaves) {
-                    this.moveGroup(group);
-                } else {
-                    group.forEach(r => {
-                        r.wave = leader.wave;
-                        r.barrierHealth = this.calculateBarrierHealth(r.zone);
-                    });
+                // But waves? "Each tile... representing a single wave or level".
+                // If 1 tile = 50 levels.
+                // It means you fight 50 barriers (levels) on one tile before moving.
+
+                leader.levelInZone++;
+                leader.globalLevel++;
+
+                // Sync group
+                group.forEach(r => {
+                    r.levelInZone = leader.levelInZone;
+                    r.globalLevel = leader.globalLevel;
+
+                    r.zpCollected += 1;
+                    r.dps += r.getDPSGain();
+
+                    // Steal (Every 10 levels)
+                    if (r.globalLevel % 10 === 0) {
+                        const stealTier = r.relicsSnapshot["STEAL"] || 0;
+                        if (Math.random() < (stealTier * 0.025)) {
+                             r.zpCollected += 1;
+                             this.log(`${r.name} STOLE extra ZP!`);
+                        }
+                    }
+
+                    // Fragment
+                    if (Math.random() < 0.1) this.awardFragment(r);
+
+                    // Map Piece (Scan)
+                    let z = Math.floor(r.globalLevel / LEVELS_PER_ZONE);
+                    if (!this.completedMaps[z]) {
+                        const scanTier = r.relicsSnapshot["SCAN"] || 0;
+                        const chance = 0.05 + (scanTier * 0.001);
+                        if (Math.random() < chance) {
+                            if (!this.mapPieces[z]) this.mapPieces[z] = 0;
+                            this.mapPieces[z]++;
+                            this.log(`${r.name} found Map Piece (Zone ${z+1})!`);
+                            if (this.mapPieces[z] >= 5) {
+                                this.completedMaps[z] = true;
+                                this.log(`Zone ${z+1} Map Completed!`);
+                            }
+                        }
+                    }
+                });
+
+                // Check Movement (Every 50 levels)
+                // Levels 1..50 -> Step 0.
+                // Level 51 -> Step 1.
+                // So if (globalLevel % 50 === 1) -> Move?
+                // Or if (previousLevel % 50 === 0).
+
+                if (leader.globalLevel % LEVELS_PER_TILE === 1 && leader.globalLevel > 1) {
+                    this.moveVisualStep(group);
                 }
+
+                // Zone Conquest Check (End of Zone, e.g. Level 100, 200...)
+                if ((leader.globalLevel % LEVELS_PER_ZONE) === 0) {
+                    let z = (leader.globalLevel / LEVELS_PER_ZONE) - 1;
+                    if (!this.conqueredZones.includes(z)) {
+                        this.conqueredZones.push(z);
+                        this.log(`Zone ${z+1} CONQUERED! Road built.`);
+                    }
+                }
+
+                // Highest Zone
+                let z = Math.floor(leader.globalLevel / LEVELS_PER_ZONE);
+                if (z > this.highestReachedZone) this.highestReachedZone = z;
+
+                // Reset Barrier
+                group.forEach(r => r.barrierHealth = this.calculateBarrierHealth(r.globalLevel));
             } else {
                 group.forEach(r => r.barrierHealth = leader.barrierHealth);
             }
@@ -340,72 +444,40 @@ class GameState {
 
         for (let i = this.runners.length - 1; i >= 0; i--) {
             let r = this.runners[i];
-            if (r.zpCollected >= r.getCap(this.relics)) {
+            if (r.zpCollected >= r.getCap()) {
                 this.warpRunner(r, i);
             }
         }
 
-        let maxZone = this.runners.reduce((max, r) => Math.max(max, r.zone), 0);
-        if (maxZone >= this.mapSegments.length - 1) {
-            this.generateNextMapSegment();
-        }
+        this.ensureMapSegments();
 
-        this.save();
+        // Removed explicit save() call from update loop
         this.updateTracker();
         this.updateGlobalZPDisplay();
         this.renderMap();
         this.renderRelics();
     }
 
-    moveGroup(group) {
+    moveVisualStep(group) {
         group.forEach(r => {
-            r.zpCollected += 1;
-            r.level++;
+            r.stepInSegment++;
 
-            if (Math.random() < 0.1) {
-                this.awardFragment(r);
+            let currentSegment = this.mapSegments[r.currentSegmentIndex];
+            // Check boundary
+            if (r.stepInSegment >= currentSegment.pathCoordinates.length) {
+                // Move to next segment
+                r.currentSegmentIndex++;
+                r.stepInSegment = 0;
             }
-
-            // STEAL (Every 10 levels/steps)
-            if (r.level % 10 === 0) {
-                const stealTier = this.relics["STEAL"] || 0;
-                if (Math.random() < (stealTier * 0.025)) {
-                     r.zpCollected += 1;
-                     this.log(`${r.name} STOLE extra ZP!`);
-                }
-            }
-
-            if (!this.completedMaps[r.zone]) {
-                const scanTier = this.relics["SCAN"] || 0;
-                const baseChance = 0.05;
-                const chance = baseChance + (scanTier * 0.001);
-
-                if (Math.random() < chance) {
-                    if (!this.mapPieces[r.zone]) this.mapPieces[r.zone] = 0;
-                    this.mapPieces[r.zone]++;
-                    this.log(`${r.name} found Map Piece!`);
-
-                    if (this.mapPieces[r.zone] >= 5) {
-                        this.completedMaps[r.zone] = true;
-                        this.log(`Zone ${r.zone + 1} Map Completed!`);
-                    }
-                }
-            }
-
-            r.step++;
-            r.wave = 1;
-
-            r.dps += r.getDPSGain(this.relics);
-
-            let currentSegment = this.mapSegments[r.zone];
-            if (r.step >= currentSegment.pathCoordinates.length) {
-                r.zone++;
-                r.step = 0;
-                this.log(`${r.name} entered Zone ${r.zone + 1}`);
-            }
-
-            r.barrierHealth = this.calculateBarrierHealth(r.zone);
         });
+    }
+
+    ensureMapSegments() {
+        // If any runner is on the last segment, generate next
+        let maxSeg = this.runners.reduce((max, r) => Math.max(max, r.currentSegmentIndex), 0);
+        if (maxSeg >= this.mapSegments.length - 1) {
+            this.generateNextMapSegment();
+        }
     }
 
     awardFragment(runner) {
@@ -413,7 +485,7 @@ class GameState {
         runner.fragmentsCollected[type]++;
         this.log(`${runner.name} found ${type} fragment`);
 
-        const scoopTier = this.relics["SCOOP"] || 0;
+        const scoopTier = runner.relicsSnapshot["SCOOP"] || 0;
         if (Math.random() < (scoopTier * 0.025)) {
              let bonusType = RELIC_TYPES[Math.floor(Math.random() * RELIC_TYPES.length)];
              runner.fragmentsCollected[bonusType]++;
@@ -421,8 +493,10 @@ class GameState {
         }
     }
 
-    calculateBarrierHealth(zoneIndex) {
-        return Math.floor(10 * Math.pow(1.1, zoneIndex));
+    calculateBarrierHealth(globalLevel) {
+        // Scale based on Zone? 10 * 1.1^Zone
+        let zone = Math.floor((globalLevel - 1) / LEVELS_PER_ZONE);
+        return Math.floor(10 * Math.pow(1.1, zone));
     }
 
     warpRunner(runner, index) {
@@ -432,8 +506,13 @@ class GameState {
             this.relicFragments[type] += runner.fragmentsCollected[type];
         }
 
+        if (this.runnersSentCount > 0) this.runnersSentCount--;
+
         this.runners.splice(index, 1);
         this.log(`🌀 ${runner.name} warped! +${runner.zpCollected} ZP`);
+
+        this.updateGlobalZPDisplay();
+        this.updateCostDisplay();
     }
 
     getRunnerCost() {
@@ -447,8 +526,13 @@ class GameState {
             this.runnersSentCount++;
 
             let id = Date.now() + Math.random();
-            let name = "Runner " + this.runnersSentCount;
+            let name = "Runner " + (this.runners.length + this.runnersSentCount); // Just unique ID
             let runner = new Runner(id, name, cost, this.relics);
+
+            // Ensure they start at beginning
+            runner.currentSegmentIndex = 0;
+            runner.stepInSegment = 0;
+
             this.runners.push(runner);
 
             this.log(`🚀 ${name} sent to Zone 1`);
@@ -500,21 +584,19 @@ class GameState {
         const list = document.getElementById('tracker-list');
         list.innerHTML = '';
 
-        let sorted = [...this.runners].sort((a, b) => {
-            if (a.zone !== b.zone) return b.zone - a.zone;
-            return b.step - a.step;
-        });
+        let sorted = [...this.runners].sort((a, b) => b.globalLevel - a.globalLevel);
 
         sorted.forEach(r => {
+            let z = Math.floor((r.globalLevel - 1) / LEVELS_PER_ZONE) + 1;
             let div = document.createElement('div');
             div.className = 'tracker-item';
             div.innerHTML = `
                 <div class="tracker-header">
-                    <span>${r.getEmoji(this.relics)} ${r.name}</span>
-                    <span>Z${r.zone + 1}</span>
+                    <span>${r.getEmoji()} ${r.name}</span>
+                    <span>Z${z} L${r.levelInZone}</span>
                 </div>
                 <div class="tracker-details">
-                    ZP: ${r.zpCollected}/${r.getCap(this.relics)} | HP: ${Math.floor(r.barrierHealth)} | DPS: ${Math.floor(r.dps)}
+                    ZP: ${r.zpCollected}/${r.getCap()} | HP: ${Math.floor(r.barrierHealth)} | DPS: ${Math.floor(r.dps)}
                 </div>
             `;
             list.appendChild(div);
@@ -560,38 +642,35 @@ class GameState {
         const container = document.getElementById('map-content');
         container.innerHTML = '';
 
-        let maxZone = 0;
+        // Find highest segment reached
+        let maxSeg = 0;
         if (this.runners.length > 0) {
-            maxZone = this.runners.reduce((max, r) => Math.max(max, r.zone), 0);
+            maxSeg = this.runners.reduce((max, r) => Math.max(max, r.currentSegmentIndex), 0);
         }
 
-        let visibleLimit = Math.max(maxZone + 1, 1);
+        let visibleLimit = Math.max(maxSeg + 1, 1);
+
+        // Calculate global tile offsets for Road Logic
+        let currentGlobalTileOffset = 0;
 
         for (let i = 0; i < this.mapSegments.length; i++) {
             if (i > visibleLimit) break;
 
             let seg = this.mapSegments[i];
-            let segRunners = this.runners.filter(r => r.zone === seg.index);
+            let segRunners = this.runners.filter(r => r.currentSegmentIndex === seg.index);
 
-            // Determine max explored step for this specific segment
-            // Default to -1 (nothing explored)
-            let exploredStep = this.maxStepPerZone[i];
+            let exploredStep = this.maxStepPerSegment[i];
             if (exploredStep === undefined) {
-                // If we have runners in higher zones, this zone is fully explored
-                if (i < maxZone) {
-                    exploredStep = 9999;
-                } else {
-                    exploredStep = -1;
-                }
+                if (i < maxSeg) exploredStep = 9999;
+                else exploredStep = -1;
             }
-
-            // Check if road is constructed (Zone index < highestReachedZone)
-            let isRoad = i < this.highestReachedZone;
 
             const div = document.createElement('div');
             div.className = 'map-segment';
-            div.textContent = seg.render(segRunners, this.relics, exploredStep, isRoad);
+            div.textContent = seg.render(segRunners, this.conqueredZones, exploredStep, currentGlobalTileOffset);
             container.appendChild(div);
+
+            currentGlobalTileOffset += seg.pathCoordinates.length;
         }
     }
 
@@ -603,16 +682,22 @@ class GameState {
             relicFragments: this.relicFragments,
             runners: this.runners.map(r => ({
                 id: r.id, name: r.name, dps: r.dps,
-                zone: r.zone, level: r.level, step: r.step, wave: r.wave,
+                globalLevel: r.globalLevel,
+                levelInZone: r.levelInZone,
+                currentSegmentIndex: r.currentSegmentIndex,
+                stepInSegment: r.stepInSegment,
+                wave: r.wave,
                 barrierHealth: r.barrierHealth,
                 zpCollected: r.zpCollected,
-                fragmentsCollected: r.fragmentsCollected
+                fragmentsCollected: r.fragmentsCollected,
+                relicsSnapshot: r.relicsSnapshot
             })),
             activePatternIndex: this.activePatternIndex,
             highestReachedZone: this.highestReachedZone,
             mapPieces: this.mapPieces,
             completedMaps: this.completedMaps,
-            maxStepPerZone: this.maxStepPerZone
+            conqueredZones: this.conqueredZones,
+            maxStepPerSegment: this.maxStepPerSegment
         };
         localStorage.setItem(SAVE_KEY, JSON.stringify(data));
     }
@@ -631,18 +716,22 @@ class GameState {
                 this.highestReachedZone = data.highestReachedZone || 0;
                 this.mapPieces = data.mapPieces || {};
                 this.completedMaps = data.completedMaps || {};
-                this.maxStepPerZone = data.maxStepPerZone || {};
+                this.conqueredZones = data.conqueredZones || [];
+                this.maxStepPerSegment = data.maxStepPerSegment || {};
 
                 if (data.runners) {
                     this.runners = data.runners.map(d => {
-                        let r = new Runner(d.id, d.name, d.dps, this.relics);
-                        r.zone = d.zone;
-                        r.level = d.level || 1;
-                        r.step = d.step;
+                        let r = new Runner(d.id, d.name, d.dps, this.relics); // relics updated below
+                        // Restore state
+                        r.globalLevel = d.globalLevel || 1;
+                        r.levelInZone = d.levelInZone || 1;
+                        r.currentSegmentIndex = d.currentSegmentIndex || d.zone || 0; // backward compat
+                        r.stepInSegment = d.stepInSegment || d.step || 0;
                         r.wave = d.wave;
                         r.barrierHealth = d.barrierHealth;
                         r.zpCollected = d.zpCollected;
                         r.fragmentsCollected = d.fragmentsCollected;
+                        r.relicsSnapshot = d.relicsSnapshot || {...this.relics};
                         return r;
                     });
                 }
@@ -654,6 +743,7 @@ class GameState {
 
     resetSave() {
         if (this.loopId) clearInterval(this.loopId);
+        if (this.saveLoopId) clearInterval(this.saveLoopId);
         this.loopId = null;
         localStorage.removeItem(SAVE_KEY);
         location.reload();
