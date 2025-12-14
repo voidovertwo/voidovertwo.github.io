@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zonerunners</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="game-container">
+        <!-- Left Sidebar: Actions & Stats -->
+        <div id="sidebar">
+            <h1>Zonerunners</h1>
+
+            <div id="global-stats" class="module">
+                <h2>Resources</h2>
+                <div class="stat-row">
+                    <span>Global ZP:</span>
+                    <span id="global-zp">100</span>
+                </div>
+                <div class="stat-row">
+                    <span>Pending ZP:</span>
+                    <span id="pending-zp" class="pending">0</span>
+                </div>
+            </div>
+
+            <div id="actions" class="module">
+                <h2>Control Center</h2>
+                <button id="send-runner-btn" class="action-btn">
+                    Send Runner<br>
+                    <span class="subtext">Cost: <span id="runner-cost">10</span> ZP</span>
+                </button>
+            </div>
+
+            <div id="relics-module" class="module">
+                <h2>Relics</h2>
+                <div id="relics-list">
+                    <!-- Relics populated by JS -->
+                </div>
+            </div>
+
+            <div id="tracker-module" class="module">
+                <h2>The Tracker</h2>
+                <div id="tracker-list">
+                    <!-- Active runners/caravans -->
+                </div>
+            </div>
+
+             <div id="controls-module" class="module">
+                <h2>System</h2>
+                <button id="reset-save-btn" class="small-btn warning">Reset Save</button>
+            </div>
+        </div>
+
+        <!-- Right Main Area: Map -->
+        <div id="map-container">
+            <div id="map-header">
+                <h2>THE MAP</h2>
+            </div>
+            <div id="map-scroll-area">
+                <div id="map-content">
+                    <!-- Map segments will be appended here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="patterns.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>
