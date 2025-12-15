@@ -532,7 +532,7 @@ class GameState {
     }
 
     getRunnerCost() {
-        return Math.floor(COST_BASE * Math.pow(COST_MULTIPLIER, this.runnersSentCount));
+        return Math.max(10, Math.ceil(this.globalZP * 0.10));
     }
 
     sendRunner() {
