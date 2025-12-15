@@ -373,7 +373,13 @@ class GameState {
                         r.globalLevel = leader.globalLevel;
                         r.wave = 1;
 
-                        r.zpCollected += 1;
+                        // ZP Reward Logic
+                        let completedLevel = leader.globalLevel - 1;
+                        let zpGain = 0;
+                        if (completedLevel % 10 === 0) zpGain += 1;
+                        if (completedLevel % 100 === 0) zpGain += 10;
+
+                        r.zpCollected += zpGain;
                         r.dps += r.getDPSGain();
 
                         // Steal (Every 10 levels)
