@@ -546,7 +546,8 @@ class GameState {
             this.relicFragments[type] += runner.fragmentsCollected[type];
         }
 
-        if (this.runnersSentCount > 0) this.runnersSentCount--;
+        // Do not decrement runnersSentCount so names remain sequential/unique
+        // if (this.runnersSentCount > 0) this.runnersSentCount--;
 
         this.runners.splice(index, 1);
         this.log(`🌀 ${runner.name} warped! +${runner.zpCollected} ZP`);
@@ -566,7 +567,8 @@ class GameState {
             this.runnersSentCount++;
 
             let id = Date.now() + Math.random();
-            let name = "Runner " + (this.runners.length + this.runnersSentCount); // Just unique ID
+            // Use runnersSentCount directly for sequential naming
+            let name = "Runner " + this.runnersSentCount;
             let runner = new Runner(id, name, cost, this.relics);
 
             // Ensure they start at beginning
@@ -750,13 +752,13 @@ class GameState {
             }
 
             if (entity.type === "caravan") {
-                // Caravan Display
-                let memberNames = entity.members.map(m => `${m.getEmoji()}${m.name}`).join(", ");
+                // Caravan Display - Just emojis on new line
+                let memberEmojis = entity.members.map(m => m.getEmoji()).join(" ");
 
                 field.innerHTML = `
                     <div class="tracker-field-name">Caravan (${entity.members.length} members)</div>
-                    <div class="tracker-field-value">Z: ${entity.zone} | L: ${entity.level} | W: ${entity.wave}/${maxWaves}${barrierType} | B: ${hpFormatted} | CDPS: ${dpsFormatted} | Est: ${estTime}
-${memberNames}</div>
+                    <div class="tracker-field-value">Z: ${entity.zone} | L: ${entity.level} | W: ${entity.wave}/${maxWaves}${barrierType} | B: ${hpFormatted} | CDPS: ${dpsFormatted} | Est: ${estTime}</div>
+                    <div class="tracker-field-value">${memberEmojis}</div>
                 `;
             } else {
                 // Single Runner Display
