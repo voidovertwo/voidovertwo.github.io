@@ -158,6 +158,14 @@ class MapSegment {
         let visited = new Set();
         let current = nodes[0];
 
+        // Specific override for Segment 0 to start at (7, 2)
+        if (this.index === 0) {
+            let startNode = nodes.find(n => n.x === 7 && n.y === 2);
+            if (startNode) {
+                current = startNode;
+            }
+        }
+
         while (current) {
             path.push(current);
             visited.add(`${current.x},${current.y}`);
@@ -184,12 +192,13 @@ class MapSegment {
 
         let visibleSet = new Set();
 
+        // Always reveal Oasis area in Segment 0
         if (this.index === 0) {
-            for(let oy=0; oy<=2; oy++) {
-                for(let ox=6; ox<=8; ox++) {
-                    visibleSet.add(`${ox},${oy}`);
-                }
-            }
+             for (let ox = 6; ox <= 8; ox++) {
+                 for (let oy = 0; oy <= 2; oy++) {
+                     visibleSet.add(`${ox},${oy}`);
+                 }
+             }
         }
 
         if (maxStepExplored >= 0) {
@@ -205,13 +214,13 @@ class MapSegment {
 
         let mapPosCounts = {};
         runnersOnThisSegment.forEach(runner => {
-            // runner.step is local to segment?
-            // Yes, standardizing on Runner.step being index in THIS segment's path
-            if (runner.step < this.pathCoordinates.length) {
-                let pos = this.pathCoordinates[runner.step];
+            if (runner.stepInSegment < this.pathCoordinates.length) {
+                let pos = this.pathCoordinates[runner.stepInSegment];
                 let key = `${pos.x},${pos.y}`;
                 if(!mapPosCounts[key]) mapPosCounts[key] = [];
                 mapPosCounts[key].push(runner);
+            } else {
+                console.warn(`Runner step ${runner.stepInSegment} out of bounds for segment ${this.index} (len ${this.pathCoordinates.length})`);
             }
         });
 
