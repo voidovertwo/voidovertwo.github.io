@@ -33,11 +33,18 @@ function formatLargeNumber(num) {
     if (num < 1000) return Math.floor(num);
     const suffixes = ["", "K", "M", "B", "T"];
     const suffixNum = Math.floor(("" + Math.floor(num)).length / 3);
-    let shortValue = parseFloat((suffixNum !== 0 ? (num / Math.pow(1000, suffixNum)) : num).toPrecision(3));
-    if (shortValue % 1 !== 0) {
-        shortValue = shortValue.toFixed(1);
-    }
-    return shortValue + suffixes[suffixNum];
+    // Correct for cases like 100,000 where length is 6 but should use suffix index 1 (K)
+    // Actually, simpler logic:
+    // < 1M (6 digits) -> K
+    // < 1B (9 digits) -> M
+    const tier = Math.floor(Math.log10(num) / 3);
+    if (tier === 0) return Math.floor(num);
+
+    const suffix = suffixes[tier];
+    const scale = Math.pow(10, tier * 3);
+    const scaled = num / scale;
+
+    return scaled.toFixed(1) + suffix;
 }
 
 class Runner {
