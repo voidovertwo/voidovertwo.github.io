@@ -67,6 +67,7 @@ class Runner {
 
         this.barrierHealth = DEFAULT_BARRIER_HEALTH;
         this.zpCollected = 0;
+        this.zpCappedCount = 0; // Tracks ZP that counts towards the cap
         this.fragmentsCollected = {};
 
         RELIC_TYPES.forEach(t => this.fragmentsCollected[t] = 0);
@@ -534,7 +535,7 @@ class GameState {
             if (barrierHP <= 0) {
                 // Wave Complete
                 leader.wave++;
-                let maxWaves = this.getWavesForLevel(leader.globalLevel);
+                let maxWaves = this.getWavesForLevel(leader.globalLevel, this.constructedRoads);
 
                 if (leader.wave > maxWaves) {
                     // Level Complete
@@ -594,6 +595,17 @@ class GameState {
                         if (completedLevel % 10 === 0) zpGain += 1;
                         if (completedLevel % 100 === 0) zpGain += 10;
                         r.zpCollected += zpGain;
+
+                        // Check if current zone has constructed road
+                        let currentZoneIdx = Math.floor((r.globalLevel - 1) / LEVELS_PER_ZONE);
+                        let isRoadConstructed = false;
+                        if (this.constructedRoads.includes(currentZoneIdx)) isRoadConstructed = true;
+
+                        // Only increment capped ZP if road is NOT constructed
+                        if (!isRoadConstructed) {
+                            r.zpCappedCount += zpGain;
+                        }
+
                         r.dps += r.getDPSGain();
 
                         // Steal
@@ -684,7 +696,7 @@ class GameState {
         // Warp Capped Runners
         for (let i = this.runners.length - 1; i >= 0; i--) {
             let r = this.runners[i];
-            if (r.zpCollected >= r.getCap() && !r.isNPC) {
+            if (r.zpCappedCount >= r.getCap() && !r.isNPC) {
                 this.warpRunner(r, i);
             }
         }
@@ -769,8 +781,40 @@ class GameState {
         }
     }
 
-    getWavesForLevel(globalLevel) {
+    getWavesForLevel(globalLevel, constructedRoads) {
+        // Boss levels always 1 wave
         if (globalLevel % 10 === 0) return 1;
+
+        // Check if road is constructed for this zone
+        let zone = Math.floor((globalLevel - 1) / LEVELS_PER_ZONE);
+
+        let hasRoad = false;
+        // Use constructedRoads passed as argument or fallback to this.constructedRoads if method called on game instance
+        // But getWavesForLevel is on GameState prototype.
+        // Wait, if it's called as `this.getWavesForLevel(...)` inside `update`, it should access `this.constructedRoads`.
+        // BUT I added `constructedRoads` as an argument in the overwrite.
+        // Let's rely on `this.constructedRoads` if available, or the argument.
+
+        // Actually, inside GameState methods, `this` refers to the instance.
+        // So I can just use `this.constructedRoads` directly!
+        // The argument `constructedRoads` is redundant if I am inside `GameState`.
+        // Let's check where it is called.
+        // It is called in `update()`: `let maxWaves = this.getWavesForLevel(leader.globalLevel);`
+        // And in `updateTracker()`: `let maxWaves = this.getWavesForLevel(entity.globalLevel);`
+
+        // So I don't need to pass it as an argument. I can access `this.constructedRoads`.
+
+        if (this.constructedRoads) { // Ensure it exists
+             if (Array.isArray(this.constructedRoads)) {
+                 hasRoad = this.constructedRoads.includes(zone);
+             } else if (this.constructedRoads instanceof Set) {
+                 hasRoad = this.constructedRoads.has(zone);
+             }
+        }
+
+        // If road exists, non-boss levels are reduced to 1 wave
+        if (hasRoad) return 1;
+
         return WAVES_PER_LEVEL;
     }
 
@@ -1147,6 +1191,7 @@ class GameState {
                 wave: r.wave,
                 barrierHealth: r.barrierHealth,
                 zpCollected: r.zpCollected,
+                zpCappedCount: r.zpCappedCount,
                 fragmentsCollected: r.fragmentsCollected,
                 relicsSnapshot: r.relicsSnapshot
             })),
@@ -1203,6 +1248,7 @@ class GameState {
                         r.wave = d.wave;
                         r.barrierHealth = d.barrierHealth;
                         r.zpCollected = d.zpCollected;
+                        r.zpCappedCount = d.zpCappedCount || d.zpCollected; // Migrate or use
                         r.fragmentsCollected = d.fragmentsCollected;
                         r.relicsSnapshot = d.relicsSnapshot || {...this.relics};
                         return r;
