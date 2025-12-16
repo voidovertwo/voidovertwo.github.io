@@ -192,7 +192,6 @@ class MapSegment {
     render(runnersOnThisSegment = [], conqueredZones = [], maxStepExplored = -1, globalTileOffset = 0, mapPieces = {}, activeHideouts = new Set(), npcs = []) {
         let html = '';
 
-        // Sort runners by Style Tier Descending for display priority
         runnersOnThisSegment.sort((a, b) => {
             let sA = a.relicsSnapshot["STYLE"] || 0;
             let sB = b.relicsSnapshot["STYLE"] || 0;
@@ -294,7 +293,7 @@ class MapSegment {
 
 class GameState {
     constructor() {
-        this.globalZP = 10000;
+        this.globalZP = 1000;
         this.runnersSentCount = 0;
         this.runners = [];
         this.relics = {};
@@ -305,6 +304,7 @@ class GameState {
 
         this.highestReachedZone = 0;
         this.mapPieces = {};
+        this.mapPieceBoosts = {};
         this.completedMaps = {};
 
         this.zonesReadyForHideout = new Set();
@@ -366,43 +366,18 @@ class GameState {
 
         for (let key in caravans) {
             let group = caravans[key];
-            let leader = group[0];
 
-            let runnersAhead = sortedRunners.filter(r => r.globalLevel > leader.globalLevel).length;
+            group.sort((a, b) => {
+                let sA = a.relicsSnapshot["STYLE"] || 0;
+                let sB = b.relicsSnapshot["STYLE"] || 0;
+                return sB - sA;
+            });
+
+            let leader = group[0];
+            let runnersAhead = this.runners.filter(r => r.globalLevel > leader.globalLevel).length;
             let currentZone = Math.floor(leader.globalLevel / LEVELS_PER_ZONE);
 
             let isConquered = this.conqueredZones.includes(currentZone);
-
-            // Map Piece Collection (Per Tick)
-            if (!leader.isNPC) {
-                let z = Math.floor((leader.globalLevel - 1) / LEVELS_PER_ZONE);
-                let pieceIdx = (leader.globalLevel - 1) % LEVELS_PER_ZONE;
-                if (!this.mapPieces[z]) this.mapPieces[z] = Array(100).fill(false);
-
-                if (!this.mapPieces[z][pieceIdx]) {
-                    const scanTier = leader.relicsSnapshot["SCAN"] || 0;
-                    const chance = 0.05 + (scanTier * 0.001);
-                    if (Math.random() < chance) {
-                         this.mapPieces[z][pieceIdx] = true;
-                         // Check Full
-                         if (this.mapPieces[z].every(Boolean)) {
-                             if (!this.conqueredZones.includes(z) && !this.activeHideouts.has(z) && !this.zonesReadyForHideout.has(z)) {
-                                 // Check if area clear (Level 100 occupied)
-                                 let bossLevel = (z + 1) * LEVELS_PER_ZONE;
-                                 let busy = this.runners.some(r => !r.isNPC && r.globalLevel === bossLevel);
-
-                                 if (busy) {
-                                     this.zonesReadyForHideout.add(z);
-                                     this.log(`🗺️ Zone ${z+1} Fully Mapped! Hideout waiting for area clear...`);
-                                 } else {
-                                     this.activeHideouts.add(z);
-                                     this.log(`🏰 Bandit Hideout Spawned in Zone ${z+1}!`);
-                                 }
-                             }
-                         }
-                    }
-                }
-            }
 
             let zonePieces = this.mapPieces[currentZone] || [];
             let isMapped = zonePieces.length === 100 && zonePieces.every(Boolean);
@@ -425,6 +400,44 @@ class GameState {
 
                 if (leader.wave > maxWaves) {
                     // Level Complete
+
+                    // Map Piece Collection (On Completion)
+                    if (!leader.isNPC) {
+                        let z = Math.floor((leader.globalLevel - 1) / LEVELS_PER_ZONE);
+                        let pieceIdx = (leader.globalLevel - 1) % LEVELS_PER_ZONE;
+                        if (!this.mapPieces[z]) this.mapPieces[z] = Array(100).fill(false);
+
+                        if (!this.mapPieces[z][pieceIdx]) {
+                            const scanTier = leader.relicsSnapshot["SCAN"] || 0;
+                            const baseChance = 0.01 + (scanTier * 0.001);
+
+                            let boostKey = `${z}_${pieceIdx}`;
+                            let currentBoost = this.mapPieceBoosts[boostKey] || 0;
+                            let totalChance = baseChance + (currentBoost / 100.0);
+
+                            if (Math.random() < totalChance) {
+                                 this.mapPieces[z][pieceIdx] = true;
+                                 delete this.mapPieceBoosts[boostKey];
+                                 // Check Full
+                                 if (this.mapPieces[z].every(Boolean)) {
+                                     if (!this.conqueredZones.includes(z) && !this.activeHideouts.has(z) && !this.zonesReadyForHideout.has(z)) {
+                                         let bossLevel = (z + 1) * LEVELS_PER_ZONE;
+                                         let busy = this.runners.some(r => !r.isNPC && r.globalLevel === bossLevel);
+
+                                         if (busy) {
+                                             this.zonesReadyForHideout.add(z);
+                                             this.log(`🗺️ Zone ${z+1} Fully Mapped! Hideout waiting for area clear...`);
+                                         } else {
+                                             this.activeHideouts.add(z);
+                                             this.log(`🏰 Bandit Hideout Spawned in Zone ${z+1}!`);
+                                         }
+                                     }
+                                 }
+                            } else {
+                                this.mapPieceBoosts[boostKey] = currentBoost + 1;
+                            }
+                        }
+                    }
 
                     // Check Hideout Victory
                     let z = Math.floor((leader.globalLevel - 1) / LEVELS_PER_ZONE);
@@ -700,7 +713,6 @@ class GameState {
         for (let key in caravans) {
             let group = caravans[key];
 
-            // Sort group members by Style
             group.sort((a, b) => {
                 let sA = a.relicsSnapshot["STYLE"] || 0;
                 let sB = b.relicsSnapshot["STYLE"] || 0;
@@ -878,6 +890,7 @@ class GameState {
             activePatternIndex: this.activePatternIndex,
             highestReachedZone: this.highestReachedZone,
             mapPieces: this.mapPieces,
+            mapPieceBoosts: this.mapPieceBoosts,
             completedMaps: this.completedMaps,
             conqueredZones: this.conqueredZones,
             maxStepPerSegment: this.maxStepPerSegment,
@@ -899,6 +912,7 @@ class GameState {
                 this.activePatternIndex = data.activePatternIndex || -1;
                 this.highestReachedZone = data.highestReachedZone || 0;
                 this.mapPieces = data.mapPieces || {};
+                this.mapPieceBoosts = data.mapPieceBoosts || {};
 
                 // Migration
                 for(let k in this.mapPieces) {
