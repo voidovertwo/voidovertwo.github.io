@@ -11,7 +11,7 @@ const LEVELS_PER_TILE = 10;
 const LEVELS_PER_ZONE = 100;
 const BOSS_HEALTH_MULTIPLIER = 50;
 const ZONE_BOSS_HEALTH_MULTIPLIER = 250;
-const HIDEOUT_BOSS_MULTIPLIER = 1000; // 1000x multiplier (Total 250,000x)
+const HIDEOUT_BOSS_MULTIPLIER = 1000;
 
 const RELIC_TYPES = [
     "STRENGTH", "SCOOP", "STEAL", "SIDEKICK",
@@ -192,6 +192,13 @@ class MapSegment {
     render(runnersOnThisSegment = [], conqueredZones = [], maxStepExplored = -1, globalTileOffset = 0, mapPieces = {}, activeHideouts = new Set(), npcs = []) {
         let html = '';
 
+        // Sort runners by Style Tier Descending for display priority
+        runnersOnThisSegment.sort((a, b) => {
+            let sA = a.relicsSnapshot["STYLE"] || 0;
+            let sB = b.relicsSnapshot["STYLE"] || 0;
+            return sB - sA;
+        });
+
         let mapPosCounts = {};
         runnersOnThisSegment.forEach(runner => {
             if (runner.stepInSegment < this.pathCoordinates.length) {
@@ -287,7 +294,7 @@ class MapSegment {
 
 class GameState {
     constructor() {
-        this.globalZP = 100000;
+        this.globalZP = 1000;
         this.runnersSentCount = 0;
         this.runners = [];
         this.relics = {};
@@ -692,6 +699,14 @@ class GameState {
         let entities = [];
         for (let key in caravans) {
             let group = caravans[key];
+
+            // Sort group members by Style
+            group.sort((a, b) => {
+                let sA = a.relicsSnapshot["STYLE"] || 0;
+                let sB = b.relicsSnapshot["STYLE"] || 0;
+                return sB - sA;
+            });
+
             let leader = group[0];
             let runnersAhead = this.runners.filter(r => r.globalLevel > leader.globalLevel).length;
             let currentZone = Math.floor(leader.globalLevel / LEVELS_PER_ZONE);
