@@ -11,6 +11,7 @@ const LEVELS_PER_TILE = 10;
 const LEVELS_PER_ZONE = 100;
 const BOSS_HEALTH_MULTIPLIER = 50;
 const ZONE_BOSS_HEALTH_MULTIPLIER = 250;
+const HIDEOUT_BOSS_MULTIPLIER = 1000; // 1000x multiplier (Total 250,000x)
 
 const RELIC_TYPES = [
     "STRENGTH", "SCOOP", "STEAL", "SIDEKICK",
@@ -201,7 +202,6 @@ class MapSegment {
             }
         });
 
-        // Determine visible set for Fog of War
         let visibleSet = new Set();
         if (this.index === 0) {
             for (let ox = 6; ox <= 8; ox++) {
@@ -242,8 +242,6 @@ class MapSegment {
                         let tileInZone = globalTileIndex % 10;
 
                         let zonePieces = mapPieces[zoneIndex] || [];
-                        // Sum the booleans for this tile's range (10 levels)
-                        // tileInZone 0 -> indices 0-9
                         let startIdx = tileInZone * 10;
                         let endIdx = startIdx + 10;
                         let piecesForThisTile = zonePieces.slice(startIdx, endIdx).filter(Boolean).length;
@@ -289,7 +287,7 @@ class MapSegment {
 
 class GameState {
     constructor() {
-        this.globalZP = 10000;
+        this.globalZP = 1000;
         this.runnersSentCount = 0;
         this.runners = [];
         this.relics = {};
@@ -299,7 +297,7 @@ class GameState {
         this.activePatternIndex = -1;
 
         this.highestReachedZone = 0;
-        this.mapPieces = {}; // { zoneIndex: [false...true] (100) }
+        this.mapPieces = {};
         this.completedMaps = {};
 
         this.zonesReadyForHideout = new Set();
@@ -368,6 +366,37 @@ class GameState {
 
             let isConquered = this.conqueredZones.includes(currentZone);
 
+            // Map Piece Collection (Per Tick)
+            if (!leader.isNPC) {
+                let z = Math.floor((leader.globalLevel - 1) / LEVELS_PER_ZONE);
+                let pieceIdx = (leader.globalLevel - 1) % LEVELS_PER_ZONE;
+                if (!this.mapPieces[z]) this.mapPieces[z] = Array(100).fill(false);
+
+                if (!this.mapPieces[z][pieceIdx]) {
+                    const scanTier = leader.relicsSnapshot["SCAN"] || 0;
+                    const chance = 0.05 + (scanTier * 0.001);
+                    if (Math.random() < chance) {
+                         this.mapPieces[z][pieceIdx] = true;
+                         // Check Full
+                         if (this.mapPieces[z].every(Boolean)) {
+                             if (!this.conqueredZones.includes(z) && !this.activeHideouts.has(z) && !this.zonesReadyForHideout.has(z)) {
+                                 // Check if area clear (Level 100 occupied)
+                                 let bossLevel = (z + 1) * LEVELS_PER_ZONE;
+                                 let busy = this.runners.some(r => !r.isNPC && r.globalLevel === bossLevel);
+
+                                 if (busy) {
+                                     this.zonesReadyForHideout.add(z);
+                                     this.log(`🗺️ Zone ${z+1} Fully Mapped! Hideout waiting for area clear...`);
+                                 } else {
+                                     this.activeHideouts.add(z);
+                                     this.log(`🏰 Bandit Hideout Spawned in Zone ${z+1}!`);
+                                 }
+                             }
+                         }
+                    }
+                }
+            }
+
             let zonePieces = this.mapPieces[currentZone] || [];
             let isMapped = zonePieces.length === 100 && zonePieces.every(Boolean);
 
@@ -389,6 +418,17 @@ class GameState {
 
                 if (leader.wave > maxWaves) {
                     // Level Complete
+
+                    // Check Hideout Victory
+                    let z = Math.floor((leader.globalLevel - 1) / LEVELS_PER_ZONE);
+                    let levelInZ = ((leader.globalLevel - 1) % LEVELS_PER_ZONE) + 1;
+
+                    if (this.activeHideouts.has(z) && levelInZ === 100) {
+                        this.activeHideouts.delete(z);
+                        this.log(`⚔️ Hideout in Zone ${z+1} CLEARED! Construction Team Dispatched.`);
+                        this.spawnNPC(z);
+                    }
+
                     leader.levelInZone++;
                     leader.globalLevel++;
                     leader.wave = 1;
@@ -419,38 +459,6 @@ class GameState {
                             }
 
                             if (Math.random() < 0.1) this.awardFragment(r);
-
-                            // Map Pieces
-                            // Only collect for the level we just CLEARED? Or the one we are entering?
-                            // "1 per level". If we just finished Level X, we should have found Piece X.
-                            // `leader.globalLevel` is now the NEW level.
-                            // `completedLevel` is the one we just finished.
-                            // Piece Index = completedLevel % 100? (0-99).
-                            // Wait, Level 100 corresponds to index 99.
-                            // completedLevel = 1 -> index 0.
-                            // completedLevel = 100 -> index 99.
-
-                            let z = Math.floor((completedLevel - 1) / LEVELS_PER_ZONE);
-                            let pieceIdx = (completedLevel - 1) % LEVELS_PER_ZONE;
-
-                            if (!this.mapPieces[z]) this.mapPieces[z] = Array(100).fill(false);
-
-                            if (!this.mapPieces[z][pieceIdx]) {
-                                const scanTier = r.relicsSnapshot["SCAN"] || 0;
-                                const chance = 0.05 + (scanTier * 0.001);
-                                if (Math.random() < chance) {
-                                     this.mapPieces[z][pieceIdx] = true;
-                                     // Log if tile completes?
-                                     // Check if tile is full
-                                     let tileIdx = Math.floor(pieceIdx / 10);
-                                     let start = tileIdx * 10;
-                                     let end = start + 10;
-                                     if (this.mapPieces[z].slice(start, end).every(Boolean)) {
-                                         // Check if it WAS full before? No need.
-                                         // Just log occasionally or not at all to avoid spam.
-                                     }
-                                }
-                            }
                         }
                     });
 
@@ -458,32 +466,17 @@ class GameState {
                         this.moveVisualStep(group);
                     }
 
-                    let z = Math.floor((leader.globalLevel - 1) / LEVELS_PER_ZONE);
-                    let levelInZ = ((leader.globalLevel - 1) % LEVELS_PER_ZONE) + 1;
-
-                    if (this.activeHideouts.has(z) && levelInZ === 100) {
-                        this.activeHideouts.delete(z);
-                        this.log(`⚔️ Hideout in Zone ${z+1} CLEARED! Construction Team Dispatched.`);
-                        this.spawnNPC(z);
-                    }
-
-                    if (!this.mapPieces[z]) this.mapPieces[z] = Array(100).fill(false);
-                    let isZoneFull = this.mapPieces[z].every(Boolean);
-
-                    if (isZoneFull && !this.conqueredZones.includes(z) && !this.activeHideouts.has(z) && !this.zonesReadyForHideout.has(z)) {
-                         let npc = this.runners.find(r => r.isNPC && r.zone === z);
-                         if (!npc) this.zonesReadyForHideout.add(z);
-                    }
-
-                    if (leader.isNPC && levelInZ === 100) {
-                        if (!this.conqueredZones.includes(z)) {
-                            this.conqueredZones.push(z);
-                            this.log(`🏗️ Road Construction Complete for Zone ${z+1}!`);
+                    if (leader.isNPC && (leader.globalLevel - 1) % LEVELS_PER_ZONE === 0) {
+                        let finishedZone = Math.floor((leader.globalLevel - 2) / LEVELS_PER_ZONE);
+                        if (!this.conqueredZones.includes(finishedZone)) {
+                            this.conqueredZones.push(finishedZone);
+                            this.log(`🏗️ Road Construction Complete for Zone ${finishedZone+1}!`);
                             this.runners = this.runners.filter(r => r !== leader);
                         }
                     }
 
-                    if (z > this.highestReachedZone) this.highestReachedZone = z;
+                    let zNew = Math.floor((leader.globalLevel - 1) / LEVELS_PER_ZONE);
+                    if (zNew > this.highestReachedZone) this.highestReachedZone = zNew;
 
                 } else {
                     group.forEach(r => r.wave = leader.wave);
@@ -497,12 +490,12 @@ class GameState {
         }
 
         this.zonesReadyForHideout.forEach(z => {
-             let targetGlobalLevel = (z + 1) * LEVELS_PER_ZONE;
-             let runnersAtSpot = this.runners.some(r => r.globalLevel === targetGlobalLevel && !r.isNPC);
-             if (!runnersAtSpot) {
+             let bossLevel = (z + 1) * LEVELS_PER_ZONE;
+             let busy = this.runners.some(r => !r.isNPC && r.globalLevel === bossLevel);
+             if (!busy) {
                  this.zonesReadyForHideout.delete(z);
                  this.activeHideouts.add(z);
-                 this.log(`⚠️ Bandit Hideout Spawned in Zone ${z+1}!`);
+                 this.log(`🏰 Area clear! Bandit Hideout Spawned in Zone ${z+1}!`);
              }
         });
 
@@ -560,8 +553,14 @@ class GameState {
         let levelFactor = Math.pow(Math.max(1, levelInZone), 1.2);
         let health = base * zoneFactor * levelFactor * 1.1;
 
-        if (levelInZone === LEVELS_PER_ZONE) health *= ZONE_BOSS_HEALTH_MULTIPLIER;
-        else if (levelInZone % 10 === 0) health *= BOSS_HEALTH_MULTIPLIER;
+        if (levelInZone === LEVELS_PER_ZONE) {
+             health *= ZONE_BOSS_HEALTH_MULTIPLIER;
+             if (this.activeHideouts.has(zone)) {
+                 health *= HIDEOUT_BOSS_MULTIPLIER;
+             }
+        } else if (levelInZone % 10 === 0) {
+             health *= BOSS_HEALTH_MULTIPLIER;
+        }
 
         if (isConquered) {
             health *= 0.10;
