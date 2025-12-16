@@ -293,7 +293,7 @@ class MapSegment {
 
 class GameState {
     constructor() {
-        this.globalZP = 1000;
+        this.globalZP = 10000;
         this.runnersSentCount = 0;
         this.runners = [];
         this.relics = {};
