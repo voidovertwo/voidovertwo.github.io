@@ -242,41 +242,40 @@ class MapSegment {
                         let tileInZone = globalTileIndex % 10;
 
                         let zonePieces = mapPieces[zoneIndex] || [];
-                        let piecesForThisTile = zonePieces[tileInZone] || 0;
+                        // Sum the booleans for this tile's range (10 levels)
+                        // tileInZone 0 -> indices 0-9
+                        let startIdx = tileInZone * 10;
+                        let endIdx = startIdx + 10;
+                        let piecesForThisTile = zonePieces.slice(startIdx, endIdx).filter(Boolean).length;
 
-                        // Check NPC Construction
                         let isConstructed = false;
                         let npc = npcs.find(r => r.zone === zoneIndex);
                         if (npc) {
-                             // If NPC is in next segment, this segment is built
                              if (npc.currentSegmentIndex > this.index) isConstructed = true;
-                             // If NPC is in this segment, built up to their step
                              else if (npc.currentSegmentIndex === this.index && npc.stepInSegment > pathIdx) isConstructed = true;
                         }
 
                         if (mapPosCounts[key]) {
                             displayChar = mapPosCounts[key][0].getEmoji();
                         } else if (conqueredZones.includes(zoneIndex) || isConstructed) {
-                            displayChar = "⬛"; // Road Built
+                            displayChar = "⬛";
                         } else {
                              if (piecesForThisTile >= 10) {
-                                 displayChar = "🟫"; // Mapped
+                                 displayChar = "🟫";
                              } else if (piecesForThisTile > 0) {
-                                 displayChar = "🟧"; // Partial
+                                 displayChar = "🟧";
                              } else {
-                                 // Hidden as Environment
                                  displayChar = this.environment[0];
                              }
                         }
 
-                        // Hideout Icon
                         if (activeHideouts.has(zoneIndex) && tileInZone === 9 && piecesForThisTile >= 10) {
                             if (!mapPosCounts[key]) displayChar = "⛺";
                         }
 
                     } else {
                         displayChar = char;
-                        if (char === '⬛') displayChar = "☁️"; // Should not happen
+                        if (char === '⬛') displayChar = "☁️";
                     }
                 }
 
@@ -290,7 +289,7 @@ class MapSegment {
 
 class GameState {
     constructor() {
-        this.globalZP = 10000;
+        this.globalZP = 1000;
         this.runnersSentCount = 0;
         this.runners = [];
         this.relics = {};
@@ -300,7 +299,7 @@ class GameState {
         this.activePatternIndex = -1;
 
         this.highestReachedZone = 0;
-        this.mapPieces = {}; // { zoneIndex: [c0...c9] }
+        this.mapPieces = {}; // { zoneIndex: [false...true] (100) }
         this.completedMaps = {};
 
         this.zonesReadyForHideout = new Set();
@@ -369,9 +368,8 @@ class GameState {
 
             let isConquered = this.conqueredZones.includes(currentZone);
 
-            // Map Completion Check for DPS
             let zonePieces = this.mapPieces[currentZone] || [];
-            let isMapped = zonePieces.length === 10 && zonePieces.every(c => c >= 10);
+            let isMapped = zonePieces.length === 100 && zonePieces.every(Boolean);
 
             let totalDPS = group.reduce((sum, r) =>
                 sum + r.getEffectiveDPS(
@@ -423,19 +421,33 @@ class GameState {
                             if (Math.random() < 0.1) this.awardFragment(r);
 
                             // Map Pieces
-                            let z = Math.floor((r.globalLevel - 1) / LEVELS_PER_ZONE);
-                            if (!this.mapPieces[z]) this.mapPieces[z] = Array(10).fill(0);
+                            // Only collect for the level we just CLEARED? Or the one we are entering?
+                            // "1 per level". If we just finished Level X, we should have found Piece X.
+                            // `leader.globalLevel` is now the NEW level.
+                            // `completedLevel` is the one we just finished.
+                            // Piece Index = completedLevel % 100? (0-99).
+                            // Wait, Level 100 corresponds to index 99.
+                            // completedLevel = 1 -> index 0.
+                            // completedLevel = 100 -> index 99.
 
-                            let isZoneFull = this.mapPieces[z].every(c => c >= 10);
-                            if (!isZoneFull) {
+                            let z = Math.floor((completedLevel - 1) / LEVELS_PER_ZONE);
+                            let pieceIdx = (completedLevel - 1) % LEVELS_PER_ZONE;
+
+                            if (!this.mapPieces[z]) this.mapPieces[z] = Array(100).fill(false);
+
+                            if (!this.mapPieces[z][pieceIdx]) {
                                 const scanTier = r.relicsSnapshot["SCAN"] || 0;
                                 const chance = 0.05 + (scanTier * 0.001);
                                 if (Math.random() < chance) {
-                                     let incomplete = this.mapPieces[z].map((c, i) => c < 10 ? i : -1).filter(i => i !== -1);
-                                     if (incomplete.length > 0) {
-                                         let idx = incomplete[Math.floor(Math.random() * incomplete.length)];
-                                         this.mapPieces[z][idx]++;
-                                         if(this.mapPieces[z][idx] === 10) this.log(`Tile ${idx+1} in Zone ${z+1} Fully Mapped!`);
+                                     this.mapPieces[z][pieceIdx] = true;
+                                     // Log if tile completes?
+                                     // Check if tile is full
+                                     let tileIdx = Math.floor(pieceIdx / 10);
+                                     let start = tileIdx * 10;
+                                     let end = start + 10;
+                                     if (this.mapPieces[z].slice(start, end).every(Boolean)) {
+                                         // Check if it WAS full before? No need.
+                                         // Just log occasionally or not at all to avoid spam.
                                      }
                                 }
                             }
@@ -455,14 +467,10 @@ class GameState {
                         this.spawnNPC(z);
                     }
 
-                    if (!this.mapPieces[z]) this.mapPieces[z] = Array(10).fill(0);
-                    let isZoneFull = this.mapPieces[z].every(c => c >= 10);
+                    if (!this.mapPieces[z]) this.mapPieces[z] = Array(100).fill(false);
+                    let isZoneFull = this.mapPieces[z].every(Boolean);
 
                     if (isZoneFull && !this.conqueredZones.includes(z) && !this.activeHideouts.has(z) && !this.zonesReadyForHideout.has(z)) {
-                         // Ensure no active NPC before spawning hideout?
-                         // No, NPC spawns AFTER hideout clear.
-                         // Check if NPC is already there? (Re-conquest?)
-                         // Just strict check:
                          let npc = this.runners.find(r => r.isNPC && r.zone === z);
                          if (!npc) this.zonesReadyForHideout.add(z);
                     }
@@ -690,7 +698,7 @@ class GameState {
             let currentZone = Math.floor(leader.globalLevel / LEVELS_PER_ZONE);
 
             let zonePieces = this.mapPieces[currentZone] || [];
-            let isMapped = zonePieces.length === 10 && zonePieces.every(c => c >= 10);
+            let isMapped = zonePieces.length === 100 && zonePieces.every(Boolean);
 
             let totalDPS = group.reduce((sum, r) => sum + r.getEffectiveDPS(group.length, runnersAhead, this.highestReachedZone, isMapped), 0);
 
@@ -752,12 +760,11 @@ class GameState {
         container.innerHTML = '';
         let maxZone = Math.max(...Object.keys(this.mapPieces).map(k=>parseInt(k)), this.highestReachedZone, 0);
         for (let z = maxZone; z >= 0; z--) {
-            let pieces = this.mapPieces[z] || Array(10).fill(0);
-            let total = pieces.reduce((a,b)=>a+b, 0);
+            let pieces = this.mapPieces[z] || Array(100).fill(false);
+            let total = pieces.filter(Boolean).length;
 
-            // Only skip if absolutely nothing found and below current highest? No, show context.
             if (total === 0 && z < maxZone) {
-                // Keep minimal check
+                // keep context
             }
 
             let div = document.createElement('div');
@@ -767,7 +774,10 @@ class GameState {
             if (this.conqueredZones.includes(z)) status = "CONQUERED";
             let html = `<div class="map-progress-header">Zone ${z+1} - ${status}</div><div class="map-progress-grid">`;
             for(let t=0; t<10; t++) {
-                 let p = pieces[t] || 0;
+                 let start = t * 10;
+                 let end = start + 10;
+                 let p = pieces.slice(start, end).filter(Boolean).length;
+
                  let color = "#555";
                  if(p > 0) color = "orange";
                  if(p == 10) color = "#8B4513";
@@ -808,7 +818,6 @@ class GameState {
         let visibleLimit = Math.max(maxSeg + 1, 1);
         let currentGlobalTileOffset = 0;
 
-        // Pass NPCs explicitly
         let npcs = this.runners.filter(r => r.isNPC);
 
         for (let i = 0; i < this.mapSegments.length; i++) {
@@ -877,15 +886,30 @@ class GameState {
                 this.highestReachedZone = data.highestReachedZone || 0;
                 this.mapPieces = data.mapPieces || {};
 
-                // Migration: Check if mapPieces has legacy format or simple count
+                // Migration
                 for(let k in this.mapPieces) {
-                    // if it is boolean or number, reset to full array or empty array
-                    if (!Array.isArray(this.mapPieces[k])) {
-                        if (this.mapPieces[k] === true || this.mapPieces[k] >= 100) {
-                            this.mapPieces[k] = Array(10).fill(10);
-                        } else {
-                            this.mapPieces[k] = Array(10).fill(0);
+                    if (Array.isArray(this.mapPieces[k])) {
+                        if (this.mapPieces[k].length === 10) {
+                             // Convert [10, 10...] counts to [true, true...] (100)
+                             let old = this.mapPieces[k];
+                             let newArr = Array(100).fill(false);
+                             for(let t=0; t<10; t++) {
+                                 let count = old[t];
+                                 if(typeof count === 'number') {
+                                     for(let c=0; c<count && c<10; c++) {
+                                         newArr[t*10 + c] = true;
+                                     }
+                                 } else if (count === true) {
+                                     // full
+                                     for(let c=0; c<10; c++) newArr[t*10 + c] = true;
+                                 }
+                             }
+                             this.mapPieces[k] = newArr;
                         }
+                    } else if (this.mapPieces[k] === true) {
+                         this.mapPieces[k] = Array(100).fill(true);
+                    } else {
+                         this.mapPieces[k] = Array(100).fill(false);
                     }
                 }
 
