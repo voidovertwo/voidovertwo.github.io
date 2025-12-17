@@ -409,7 +409,7 @@ class GameState {
 
                         if (!this.mapPieces[z][pieceIdx]) {
                             const scanTier = leader.relicsSnapshot["SCAN"] || 0;
-                            const baseChance = 0.05 + (scanTier * 0.001); // Increased to 5%
+                            const baseChance = 0.01 + (scanTier * 0.001); // Increased to 5%
 
                             let boostKey = `${z}_${pieceIdx}`;
                             let currentBoost = this.mapPieceBoosts[boostKey] || 0;
