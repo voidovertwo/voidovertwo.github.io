@@ -77,6 +77,7 @@ class Runner {
 
         this.barrierHealth = DEFAULT_BARRIER_HEALTH;
         this.zpCollected = 0;
+        this.fatigue = 0;
         this.fragmentsCollected = {};
 
         RELIC_TYPES.forEach(t => this.fragmentsCollected[t] = 0);
@@ -367,6 +368,14 @@ class GameState {
         if (logContainer.children.length > 50) logContainer.lastChild.remove();
     }
 
+    awardZP(runner, amount, isSteal = false) {
+        runner.zpCollected += amount;
+        let onRoad = this.conqueredZones.includes(runner.zone);
+        if (!onRoad && !isSteal) {
+            runner.fatigue += amount;
+        }
+    }
+
     update() {
         let sortedRunners = [...this.runners].sort((a, b) => {
             if (a.zone !== b.zone) return b.zone - a.zone;
@@ -461,6 +470,7 @@ class GameState {
 
                                     if (Math.random() < totalChance) {
                                          this.mapPieces[z][pieceIdx] = true;
+                                         if (!r.isNPC) this.awardZP(r, 1);
                                          delete this.mapPieceBoosts[boostKey];
                                          // Check Full
                                          if (this.mapPieces[z].every(Boolean)) {
@@ -489,27 +499,23 @@ class GameState {
                         r.wave = 1;
 
                         if (!r.isNPC) {
-                            let zpGain = 0;
                             let completedLevel = leader.globalLevel - 1;
-                            if (completedLevel % 10 === 0) zpGain += 1;
-                            if (completedLevel % 100 === 0) zpGain += 10;
-
-                            let onRoad = this.conqueredZones.includes(Math.floor((r.globalLevel - 1) / LEVELS_PER_ZONE));
-                            if (r.zpCollected < r.getCap() || onRoad) {
-                                r.zpCollected += zpGain;
-                            }
+                            if (completedLevel % 10 === 0) this.awardZP(r, 1);
+                            if (completedLevel % 100 === 0) this.awardZP(r, 10);
 
                             r.dps += r.getDPSGain();
 
                             if (r.globalLevel % 10 === 0) {
                                 const stealTier = r.relicsSnapshot["STEAL"] || 0;
                                 if (Math.random() < (stealTier * 0.025)) {
-                                     r.zpCollected += 1;
+                                     this.awardZP(r, 1, true);
                                 }
                             }
 
                             if (Math.random() < 0.1) this.awardFragment(r);
                         }
+
+                        r.zone = Math.floor((r.globalLevel - 1) / LEVELS_PER_ZONE);
                     });
 
                     if (leader.globalLevel % LEVELS_PER_TILE === 1 && leader.globalLevel > 1) {
@@ -551,8 +557,7 @@ class GameState {
 
         for (let i = this.runners.length - 1; i >= 0; i--) {
             let r = this.runners[i];
-            let onRoad = this.conqueredZones.includes(Math.floor((r.globalLevel - 1) / LEVELS_PER_ZONE));
-            if (!r.isNPC && r.zpCollected >= r.getCap() && !onRoad) {
+            if (!r.isNPC && r.fatigue >= r.getCap()) {
                 this.warpRunner(r, i);
             }
         }
@@ -983,6 +988,7 @@ class GameState {
                 wave: r.wave,
                 barrierHealth: r.barrierHealth,
                 zpCollected: r.zpCollected,
+                fatigue: r.fatigue,
                 fragmentsCollected: r.fragmentsCollected,
                 relicsSnapshot: r.relicsSnapshot,
                 isNPC: r.isNPC
@@ -1058,6 +1064,7 @@ class GameState {
                         r.wave = d.wave;
                         r.barrierHealth = d.barrierHealth;
                         r.zpCollected = d.zpCollected;
+                        r.fatigue = d.fatigue || 0; // Initialize fatigue to 0 for migration
                         r.fragmentsCollected = d.fragmentsCollected;
                         r.relicsSnapshot = d.relicsSnapshot || {...this.relics};
                         return r;
