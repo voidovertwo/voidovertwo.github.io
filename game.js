@@ -396,7 +396,7 @@ class GameState {
                 // Wave Complete
                 leader.wave++;
 
-                let maxWaves = this.getWavesForLevel(leader.globalLevel, isConquered);
+                let maxWaves = this.getWavesForLevel(leader.globalLevel);
 
                 if (leader.wave > maxWaves) {
                     // Level Complete
@@ -512,7 +512,7 @@ class GameState {
                     group.forEach(r => r.wave = leader.wave);
                 }
 
-                let newHP = this.calculateBarrierHealth(leader.globalLevel, leader.wave, isConquered);
+                let newHP = this.calculateBarrierHealth(leader.globalLevel, leader.wave);
                 group.forEach(r => r.barrierHealth = newHP);
             } else {
                 group.forEach(r => r.barrierHealth = leader.barrierHealth);
@@ -569,13 +569,17 @@ class GameState {
         this.log(`${runner.name} found ${type} fragment`);
     }
 
-    getWavesForLevel(globalLevel, isConquered) {
-        if (isConquered && (globalLevel % 10 !== 0)) return 1;
+    getWavesForLevel(globalLevel) {
         if (globalLevel % 10 === 0) return 1;
-        return WAVES_PER_LEVEL;
+
+        let currentZone = Math.floor((globalLevel - 1) / LEVELS_PER_ZONE);
+        let applicableRoads = this.conqueredZones.filter(z => z >= currentZone).length;
+
+        let waves = WAVES_PER_LEVEL - applicableRoads;
+        return Math.max(1, waves);
     }
 
-    calculateBarrierHealth(globalLevel, wave, isConquered) {
+    calculateBarrierHealth(globalLevel, wave) {
         let zone = Math.floor((globalLevel - 1) / LEVELS_PER_ZONE);
         let levelInZone = ((globalLevel - 1) % LEVELS_PER_ZONE) + 1;
         let base = DEFAULT_BARRIER_HEALTH;
@@ -583,17 +587,23 @@ class GameState {
         let levelFactor = Math.pow(Math.max(1, levelInZone), 1.2);
         let health = base * zoneFactor * levelFactor * 1.1;
 
-        if (levelInZone === LEVELS_PER_ZONE) {
-             health *= ZONE_BOSS_HEALTH_MULTIPLIER;
-             if (this.activeHideouts.has(zone)) {
-                 health *= HIDEOUT_BOSS_MULTIPLIER;
-             }
-        } else if (levelInZone % 10 === 0) {
-             health *= BOSS_HEALTH_MULTIPLIER;
+        let totalWaves = this.getWavesForLevel(globalLevel);
+        let roadReduction = 1.0;
+
+        if (wave === totalWaves && (levelInZone % 10 === 0)) {
+            let applicableRoads = this.conqueredZones.filter(z => z >= zone).length;
+            if (applicableRoads > 0) {
+                let reduction = Math.min(applicableRoads * 0.10, 0.90);
+                roadReduction = 1.0 - reduction;
+            }
         }
 
-        if (isConquered) {
-            health *= 0.10;
+        if (levelInZone === LEVELS_PER_ZONE && wave === totalWaves && this.activeHideouts.has(zone)) {
+             return Math.floor(health * HIDEOUT_BOSS_MULTIPLIER * roadReduction);
+        } else if (levelInZone === LEVELS_PER_ZONE && wave === totalWaves) {
+             return Math.floor(health * ZONE_BOSS_HEALTH_MULTIPLIER * roadReduction);
+        } else if (levelInZone % 10 === 0 && wave === totalWaves) {
+             return Math.floor(health * BOSS_HEALTH_MULTIPLIER * roadReduction);
         }
 
         return Math.floor(health);
@@ -764,13 +774,19 @@ class GameState {
         entities.slice(0, 20).forEach(entity => {
             const field = document.createElement('div');
             field.className = 'tracker-field';
-            let maxWaves = this.getWavesForLevel(entity.globalLevel, this.conqueredZones.includes(entity.zone - 1));
+            let maxWaves = this.getWavesForLevel(entity.globalLevel);
             let estTime = this.calculateEstimatedCompletionTime(entity.dps, entity.hp);
             let hpFormatted = formatLargeNumber(Math.max(0, entity.hp));
             let dpsFormatted = formatLargeNumber(entity.dps);
             let barrierType = "";
             if (entity.wave === maxWaves) {
-                if (entity.level === LEVELS_PER_ZONE) barrierType = " | ZONE BOSS";
+                if (entity.level === LEVELS_PER_ZONE) {
+                    if (this.activeHideouts.has(entity.zone - 1)) {
+                        barrierType = " | HIDEOUT";
+                    } else {
+                        barrierType = " | ZONE BOSS";
+                    }
+                }
                 else if (entity.level % 10 === 0) barrierType = " | BOSS";
             }
 
