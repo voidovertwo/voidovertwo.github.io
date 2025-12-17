@@ -1,5 +1,5 @@
 // Constants
-const BASE_ZP_CAP = 20;
+const BASE_ZP_CAP = 40;
 const COST_BASE = 100;
 const COST_MULTIPLIER = 1.1;
 const UPDATE_INTERVAL = 1000; // 1 second
@@ -293,7 +293,7 @@ class MapSegment {
 
 class GameState {
     constructor() {
-        this.globalZP = 10000;
+        this.globalZP = 1000;
         this.runnersSentCount = 0;
         this.runners = [];
         this.relics = {};
@@ -401,44 +401,6 @@ class GameState {
                 if (leader.wave > maxWaves) {
                     // Level Complete
 
-                    // Map Piece Collection (On Completion)
-                    if (!leader.isNPC) {
-                        let z = Math.floor((leader.globalLevel - 1) / LEVELS_PER_ZONE);
-                        let pieceIdx = (leader.globalLevel - 1) % LEVELS_PER_ZONE;
-                        if (!this.mapPieces[z]) this.mapPieces[z] = Array(100).fill(false);
-
-                        if (!this.mapPieces[z][pieceIdx]) {
-                            const scanTier = leader.relicsSnapshot["SCAN"] || 0;
-                            const baseChance = 0.01 + (scanTier * 0.001); // Increased to 5%
-
-                            let boostKey = `${z}_${pieceIdx}`;
-                            let currentBoost = this.mapPieceBoosts[boostKey] || 0;
-                            let totalChance = baseChance + (currentBoost / 100.0);
-
-                            if (Math.random() < totalChance) {
-                                 this.mapPieces[z][pieceIdx] = true;
-                                 delete this.mapPieceBoosts[boostKey];
-                                 // Check Full
-                                 if (this.mapPieces[z].every(Boolean)) {
-                                     if (!this.conqueredZones.includes(z) && !this.activeHideouts.has(z) && !this.zonesReadyForHideout.has(z)) {
-                                         let bossLevel = (z + 1) * LEVELS_PER_ZONE;
-                                         let busy = this.runners.some(r => !r.isNPC && r.globalLevel === bossLevel);
-
-                                         if (busy) {
-                                             this.zonesReadyForHideout.add(z);
-                                             this.log(`🗺️ Zone ${z+1} Fully Mapped! Hideout waiting for area clear...`);
-                                         } else {
-                                             this.activeHideouts.add(z);
-                                             this.log(`🏰 Bandit Hideout Spawned in Zone ${z+1}!`);
-                                         }
-                                     }
-                                 }
-                            } else {
-                                this.mapPieceBoosts[boostKey] = currentBoost + 1;
-                            }
-                        }
-                    }
-
                     // Check Hideout Victory
                     let z = Math.floor((leader.globalLevel - 1) / LEVELS_PER_ZONE);
                     let levelInZ = ((leader.globalLevel - 1) % LEVELS_PER_ZONE) + 1;
@@ -454,6 +416,54 @@ class GameState {
                     leader.wave = 1;
 
                     group.forEach(r => {
+                        // Map Piece Collection (Per Runner)
+                        if (!r.isNPC) {
+                            // Using (leader.globalLevel - 2) because leader was just incremented by 1
+                            // Original level = leader.globalLevel - 1.
+                            // We want index of level we just finished.
+                            // Level 1 finished -> Index 0.
+                            // leader.globalLevel is now 2.
+                            // 2 - 2 = 0.
+                            let z = Math.floor((leader.globalLevel - 2) / LEVELS_PER_ZONE);
+                            let pieceIdx = (leader.globalLevel - 2) % LEVELS_PER_ZONE;
+
+                            // Safety check for z < 0 (if level was 1? no, level 1 -> 2. z=0)
+                            if (z >= 0 && pieceIdx >= 0) {
+                                if (!this.mapPieces[z]) this.mapPieces[z] = Array(100).fill(false);
+
+                                if (!this.mapPieces[z][pieceIdx]) {
+                                    const scanTier = r.relicsSnapshot["SCAN"] || 0;
+                                    const baseChance = 0.05 + (scanTier * 0.001);
+
+                                    let boostKey = `${z}_${pieceIdx}`;
+                                    let currentBoost = this.mapPieceBoosts[boostKey] || 0;
+                                    let totalChance = baseChance + (currentBoost / 100.0);
+
+                                    if (Math.random() < totalChance) {
+                                         this.mapPieces[z][pieceIdx] = true;
+                                         delete this.mapPieceBoosts[boostKey];
+                                         // Check Full
+                                         if (this.mapPieces[z].every(Boolean)) {
+                                             if (!this.conqueredZones.includes(z) && !this.activeHideouts.has(z) && !this.zonesReadyForHideout.has(z)) {
+                                                 let bossLevel = (z + 1) * LEVELS_PER_ZONE;
+                                                 let busy = this.runners.some(r => !r.isNPC && r.globalLevel === bossLevel);
+
+                                                 if (busy) {
+                                                     this.zonesReadyForHideout.add(z);
+                                                     this.log(`🗺️ Zone ${z+1} Fully Mapped! Hideout waiting for area clear...`);
+                                                 } else {
+                                                     this.activeHideouts.add(z);
+                                                     this.log(`🏰 Bandit Hideout Spawned in Zone ${z+1}!`);
+                                                 }
+                                             }
+                                         }
+                                    } else {
+                                        this.mapPieceBoosts[boostKey] = currentBoost + 1;
+                                    }
+                                }
+                            }
+                        }
+
                         r.levelInZone = leader.levelInZone;
                         r.globalLevel = leader.globalLevel;
                         r.wave = 1;
