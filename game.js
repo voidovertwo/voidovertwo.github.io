@@ -1,5 +1,5 @@
 // Constants
-const BASE_ZP_CAP = 40;
+const BASE_ZP_CAP = 20;
 const COST_BASE = 100;
 const COST_MULTIPLIER = 1.1;
 const UPDATE_INTERVAL = 1000; // 1 second
@@ -293,7 +293,7 @@ class MapSegment {
 
 class GameState {
     constructor() {
-        this.globalZP = 1000;
+        this.globalZP = 10000;
         this.runnersSentCount = 0;
         this.runners = [];
         this.relics = {};
