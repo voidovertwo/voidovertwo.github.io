@@ -293,7 +293,7 @@ class MapSegment {
 
 class GameState {
     constructor() {
-        this.globalZP = 10000;
+        this.globalZP = 1000;
         this.runnersSentCount = 0;
         this.runners = [];
         this.relics = {};
@@ -409,7 +409,7 @@ class GameState {
 
                         if (!this.mapPieces[z][pieceIdx]) {
                             const scanTier = leader.relicsSnapshot["SCAN"] || 0;
-                            const baseChance = 0.01 + (scanTier * 0.001);
+                            const baseChance = 0.05 + (scanTier * 0.001); // Increased to 5%
 
                             let boostKey = `${z}_${pieceIdx}`;
                             let currentBoost = this.mapPieceBoosts[boostKey] || 0;
