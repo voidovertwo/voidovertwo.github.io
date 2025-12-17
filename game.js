@@ -41,6 +41,26 @@ function formatLargeNumber(num) {
     return scaled.toFixed(1) + suffix;
 }
 
+function formatRange(numbers) {
+    if (numbers.length === 0) return "None";
+    numbers.sort((a, b) => a - b);
+    let ranges = [];
+    let start = numbers[0];
+    let prev = numbers[0];
+
+    for (let i = 1; i < numbers.length; i++) {
+        if (numbers[i] === prev + 1) {
+            prev = numbers[i];
+        } else {
+            ranges.push(start === prev ? `${start + 1}` : `${start + 1}-${prev + 1}`);
+            start = numbers[i];
+            prev = numbers[i];
+        }
+    }
+    ranges.push(start === prev ? `${start + 1}` : `${start + 1}-${prev + 1}`);
+    return ranges.join(", ");
+}
+
 class Runner {
     constructor(id, name, dps, globalRelics, isNPC = false) {
         this.id = id;
@@ -810,8 +830,33 @@ class GameState {
         const container = document.getElementById('map-progress-container');
         if (!container) return;
         container.innerHTML = '';
-        let maxZone = Math.max(...Object.keys(this.mapPieces).map(k=>parseInt(k)), this.highestReachedZone, 0);
+
+        let inProgressMaps = 0;
+        let completedMaps = 0;
+        let completedZonesCount = 0;
+        let allZoneIndices = Object.keys(this.mapPieces).map(k => parseInt(k));
+        let maxZone = Math.max(...allZoneIndices, this.highestReachedZone, 0);
+
+        // Gather stats
+        for (let z = 0; z <= maxZone; z++) {
+             let pieces = this.mapPieces[z] || Array(100).fill(false);
+             let total = pieces.filter(Boolean).length;
+
+             if (total === 100) completedZonesCount++;
+
+             for(let t=0; t<10; t++) {
+                 let start = t * 10;
+                 let end = start + 10;
+                 let p = pieces.slice(start, end).filter(Boolean).length;
+                 if (p === 10) completedMaps++;
+                 else if (p > 0) inProgressMaps++;
+             }
+        }
+
+        // Render List (Skipping Conquered/Road Completed)
         for (let z = maxZone; z >= 0; z--) {
+            if (this.conqueredZones.includes(z)) continue;
+
             let pieces = this.mapPieces[z] || Array(100).fill(false);
             let total = pieces.filter(Boolean).length;
 
@@ -823,7 +868,7 @@ class GameState {
             div.className = 'map-progress-zone';
             let status = "Mapping...";
             if (total >= 100) status = "Mapped!";
-            if (this.conqueredZones.includes(z)) status = "CONQUERED";
+
             let html = `<div class="map-progress-header">Zone ${z+1} - ${status}</div><div class="map-progress-grid">`;
             for(let t=0; t<10; t++) {
                  let start = t * 10;
@@ -833,7 +878,6 @@ class GameState {
                  let color = "#555";
                  if(p > 0) color = "orange";
                  if(p == 10) color = "#8B4513";
-                 if(this.conqueredZones.includes(z)) color = "#4CAF50";
 
                  html += `<div style="color:${color}">S${t+1}: ${p}/10</div>`;
             }
@@ -841,6 +885,36 @@ class GameState {
             div.innerHTML = html;
             container.appendChild(div);
         }
+
+        // Summary
+        let conqueredIndices = new Set(this.conqueredZones);
+        this.runners.forEach(r => {
+            if (r.isNPC) conqueredIndices.add(r.zone);
+        });
+
+        let conqueredList = Array.from(conqueredIndices).sort((a,b)=>a-b);
+        let roadList = [...this.conqueredZones].sort((a,b)=>a-b);
+
+        let completedMapsDPS = completedMaps * 5;
+        let completedZonesDPS = completedZonesCount * 50;
+
+        let summaryDiv = document.createElement('div');
+        summaryDiv.className = 'map-progress-zone';
+        summaryDiv.style.borderTop = "2px solid #444";
+        summaryDiv.style.marginTop = "10px";
+        summaryDiv.style.paddingTop = "10px";
+
+        summaryDiv.innerHTML = `
+            <div class="map-progress-header" style="text-align:center; color:#fff;">Overall Map Progress</div>
+            <div style="font-size: 0.9em; line-height: 1.4em;">
+                <div>In Progress Maps: ${inProgressMaps}</div>
+                <div>Completed Maps: ${completedMaps} (+${completedMapsDPS} DPS)</div>
+                <div>Completed Zones: ${completedZonesCount} (+${completedZonesDPS} DPS)</div>
+                <div>Conquered Zones: ${formatRange(conqueredList)}</div>
+                <div>Constructed Roads: ${formatRange(roadList)}</div>
+            </div>
+        `;
+        container.appendChild(summaryDiv);
     }
 
     renderRelics() {
