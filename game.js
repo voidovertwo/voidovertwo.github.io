@@ -67,6 +67,7 @@ class Runner {
         this.name = name;
         this.dps = dps;
         this.isNPC = isNPC;
+        this.targetZone = -1;
 
         this.relicsSnapshot = { ...globalRelics };
 
@@ -214,6 +215,8 @@ class MapSegment {
         let html = '';
 
         runnersOnThisSegment.sort((a, b) => {
+            if (a.isNPC && !b.isNPC) return -1;
+            if (!a.isNPC && b.isNPC) return 1;
             let sA = a.relicsSnapshot["STYLE"] || 0;
             let sB = b.relicsSnapshot["STYLE"] || 0;
             return sB - sA;
@@ -274,7 +277,7 @@ class MapSegment {
                         let piecesForThisTile = zonePieces.slice(startIdx, endIdx).filter(Boolean).length;
 
                         let isConstructed = false;
-                        let npc = npcs.find(r => r.zone === zoneIndex);
+                        let npc = npcs.find(r => r.targetZone === zoneIndex);
                         if (npc) {
                              if (npc.currentSegmentIndex > this.index) isConstructed = true;
                              else if (npc.currentSegmentIndex === this.index && npc.stepInSegment > pathIdx) isConstructed = true;
@@ -331,6 +334,8 @@ class GameState {
         this.zonesReadyForHideout = new Set();
         this.activeHideouts = new Set();
         this.conqueredZones = [];
+        this.pendingRoads = new Set();
+        this.npcCooldownTimestamp = 0;
 
         this.maxStepPerSegment = {};
 
@@ -377,6 +382,8 @@ class GameState {
     }
 
     update() {
+        this.processNPCSpawning();
+
         let sortedRunners = [...this.runners].sort((a, b) => {
             if (a.zone !== b.zone) return b.zone - a.zone;
             return b.levelInZone - a.levelInZone;
@@ -397,6 +404,8 @@ class GameState {
             let group = caravans[key];
 
             group.sort((a, b) => {
+                if (a.isNPC && !b.isNPC) return -1;
+                if (!a.isNPC && b.isNPC) return 1;
                 let sA = a.relicsSnapshot["STYLE"] || 0;
                 let sB = b.relicsSnapshot["STYLE"] || 0;
                 return sB - sA;
@@ -436,8 +445,8 @@ class GameState {
 
                     if (this.activeHideouts.has(z) && levelInZ === 100) {
                         this.activeHideouts.delete(z);
-                        this.log(`⚔️ Hideout in Zone ${z+1} CLEARED! Construction Team Dispatched.`);
-                        this.spawnNPC(z);
+                        this.pendingRoads.add(z);
+                        this.log(`⚔️ Hideout in Zone ${z+1} CLEARED! Road construction pending...`);
                     }
 
                     leader.levelInZone++;
@@ -448,15 +457,9 @@ class GameState {
                         // Map Piece Collection (Per Runner)
                         if (!r.isNPC) {
                             // Using (leader.globalLevel - 2) because leader was just incremented by 1
-                            // Original level = leader.globalLevel - 1.
-                            // We want index of level we just finished.
-                            // Level 1 finished -> Index 0.
-                            // leader.globalLevel is now 2.
-                            // 2 - 2 = 0.
                             let z = Math.floor((leader.globalLevel - 2) / LEVELS_PER_ZONE);
                             let pieceIdx = (leader.globalLevel - 2) % LEVELS_PER_ZONE;
 
-                            // Safety check for z < 0 (if level was 1? no, level 1 -> 2. z=0)
                             if (z >= 0 && pieceIdx >= 0) {
                                 if (!this.mapPieces[z]) this.mapPieces[z] = Array(100).fill(false);
 
@@ -474,7 +477,7 @@ class GameState {
                                          delete this.mapPieceBoosts[boostKey];
                                          // Check Full
                                          if (this.mapPieces[z].every(Boolean)) {
-                                             if (!this.conqueredZones.includes(z) && !this.activeHideouts.has(z) && !this.zonesReadyForHideout.has(z)) {
+                                             if (!this.conqueredZones.includes(z) && !this.activeHideouts.has(z) && !this.zonesReadyForHideout.has(z) && !this.pendingRoads.has(z)) {
                                                  let bossLevel = (z + 1) * LEVELS_PER_ZONE;
                                                  let busy = this.runners.some(r => !r.isNPC && r.globalLevel === bossLevel);
 
@@ -524,10 +527,14 @@ class GameState {
 
                     if (leader.isNPC && (leader.globalLevel - 1) % LEVELS_PER_ZONE === 0) {
                         let finishedZone = Math.floor((leader.globalLevel - 2) / LEVELS_PER_ZONE);
-                        if (!this.conqueredZones.includes(finishedZone)) {
-                            this.conqueredZones.push(finishedZone);
-                            this.log(`🏗️ Road Construction Complete for Zone ${finishedZone+1}!`);
-                            this.runners = this.runners.filter(r => r !== leader);
+
+                        if (finishedZone === leader.targetZone) {
+                             if (!this.conqueredZones.includes(finishedZone)) {
+                                this.conqueredZones.push(finishedZone);
+                                this.log(`🏗️ Road Construction Complete for Zone ${finishedZone+1}!`);
+                             }
+                             this.runners = this.runners.filter(r => r !== leader);
+                             this.npcCooldownTimestamp = Date.now() + 10000;
                         }
                     }
 
@@ -568,6 +575,24 @@ class GameState {
         this.renderMap();
         this.updateMapProgressDisplay();
         this.renderRelics();
+    }
+
+    processNPCSpawning() {
+        if (this.runners.some(r => r.isNPC)) return;
+        if (Date.now() < this.npcCooldownTimestamp) return;
+
+        let pending = Array.from(this.pendingRoads).sort((a,b)=>a-b);
+        if (pending.length === 0) return;
+
+        let target = pending[0];
+
+        // Check if previous road is built
+        // If target is Zone 0 (Zone 1), no previous road needed.
+        // If target is Zone 1 (Zone 2), need Zone 0 (Zone 1) road built.
+        if (target === 0 || this.conqueredZones.includes(target - 1)) {
+            this.pendingRoads.delete(target);
+            this.spawnNPC(target);
+        }
     }
 
     moveVisualStep(group) {
@@ -671,31 +696,21 @@ class GameState {
         return false;
     }
 
-    spawnNPC(zoneIndex) {
+    spawnNPC(targetZoneIndex) {
         let id = Date.now() + Math.random();
         let name = "Construction Team";
         let runner = new Runner(id, name, 0, this.relics, true);
+        runner.targetZone = targetZoneIndex;
 
-        runner.globalLevel = (zoneIndex * LEVELS_PER_ZONE) + 1;
-        runner.zone = zoneIndex;
+        // Always spawn at Zone 1 (Global Level 1)
+        runner.globalLevel = 1;
+        runner.zone = 0;
         runner.levelInZone = 1;
-
-        let targetGlobalTile = zoneIndex * 10;
-
-        let currentTileCount = 0;
-        for(let i=0; i<this.mapSegments.length; i++) {
-            let seg = this.mapSegments[i];
-            let len = seg.pathCoordinates.length;
-            if (targetGlobalTile < currentTileCount + len) {
-                runner.currentSegmentIndex = i;
-                runner.stepInSegment = targetGlobalTile - currentTileCount;
-                break;
-            }
-            currentTileCount += len;
-        }
+        runner.currentSegmentIndex = 0;
+        runner.stepInSegment = 0;
 
         this.runners.push(runner);
-        this.log(`🚧 NPC Team deployed to Zone ${zoneIndex+1}`);
+        this.log(`🚧 NPC Team deployed for Zone ${targetZoneIndex+1}`);
     }
 
     upgradeRelic(type) {
@@ -759,6 +774,8 @@ class GameState {
             let group = caravans[key];
 
             group.sort((a, b) => {
+                if (a.isNPC && !b.isNPC) return -1;
+                if (!a.isNPC && b.isNPC) return 1;
                 let sA = a.relicsSnapshot["STYLE"] || 0;
                 let sB = b.relicsSnapshot["STYLE"] || 0;
                 return sB - sA;
@@ -894,7 +911,7 @@ class GameState {
         // Summary
         let conqueredIndices = new Set(this.conqueredZones);
         this.runners.forEach(r => {
-            if (r.isNPC) conqueredIndices.add(r.zone);
+            if (r.isNPC) conqueredIndices.add(r.targetZone); // Use targetZone for consistency in summary
         });
 
         let conqueredList = Array.from(conqueredIndices).sort((a,b)=>a-b);
@@ -991,7 +1008,8 @@ class GameState {
                 fatigue: r.fatigue,
                 fragmentsCollected: r.fragmentsCollected,
                 relicsSnapshot: r.relicsSnapshot,
-                isNPC: r.isNPC
+                isNPC: r.isNPC,
+                targetZone: r.targetZone
             })),
             activePatternIndex: this.activePatternIndex,
             highestReachedZone: this.highestReachedZone,
@@ -1001,7 +1019,8 @@ class GameState {
             conqueredZones: this.conqueredZones,
             maxStepPerSegment: this.maxStepPerSegment,
             zonesReadyForHideout: Array.from(this.zonesReadyForHideout),
-            activeHideouts: Array.from(this.activeHideouts)
+            activeHideouts: Array.from(this.activeHideouts),
+            pendingRoads: Array.from(this.pendingRoads)
         };
         localStorage.setItem(SAVE_KEY, JSON.stringify(data));
     }
@@ -1053,6 +1072,7 @@ class GameState {
 
                 if (data.zonesReadyForHideout) this.zonesReadyForHideout = new Set(data.zonesReadyForHideout);
                 if (data.activeHideouts) this.activeHideouts = new Set(data.activeHideouts);
+                if (data.pendingRoads) this.pendingRoads = new Set(data.pendingRoads);
 
                 if (data.runners) {
                     this.runners = data.runners.map(d => {
@@ -1067,6 +1087,7 @@ class GameState {
                         r.fatigue = d.fatigue || 0; // Initialize fatigue to 0 for migration
                         r.fragmentsCollected = d.fragmentsCollected;
                         r.relicsSnapshot = d.relicsSnapshot || {...this.relics};
+                        r.targetZone = d.targetZone !== undefined ? d.targetZone : -1;
                         return r;
                     });
                 }
