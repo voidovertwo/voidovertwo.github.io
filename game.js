@@ -726,20 +726,22 @@ class GameState {
 
             if (!r.isNPC) {
                 let completedLevel = leader.globalLevel - 1;
-                if (completedLevel % 10 === 0) this.awardZP(r, 1);
-                if (completedLevel % 100 === 0) this.awardZP(r, 10);
 
                 // DPS Gain on Run
                 r.dps += r.getDPSGain();
 
-                if (r.globalLevel % 10 === 0) {
+                if (completedLevel % 10 === 0) {
+                    this.awardZP(r, 1);
+
                     const stealTier = r.relicsSnapshot["STEAL"] || 0;
                     if (Math.random() < (stealTier * 0.025)) {
                          this.awardZP(r, 1, true);
                     }
+
+                    if (Math.random() < 0.1) this.awardFragment(r);
                 }
 
-                if (Math.random() < 0.1) this.awardFragment(r);
+                if (completedLevel % 100 === 0) this.awardZP(r, 10);
             }
 
             r.zone = Math.floor((r.globalLevel - 1) / LEVELS_PER_ZONE);
@@ -814,7 +816,7 @@ class GameState {
     awardFragment(runner) {
         let type = RELIC_TYPES[Math.floor(Math.random() * RELIC_TYPES.length)];
         runner.fragmentsCollected[type]++;
-        // this.log(`${runner.name} found ${type} fragment`); // Spammy?
+        this.log(`${runner.name} found ${type} fragment`);
     }
 
     getWavesForLevel(globalLevel) {
@@ -903,9 +905,17 @@ class GameState {
     }
 
     sendAllRunners() {
+        let sentCount = 0;
         this.runners.forEach(r => {
-            if (r.state === "READY") this.sendRunner(r);
+            if (r.state === "READY") {
+                r.startRun();
+                sentCount++;
+            }
         });
+        if (sentCount > 0) {
+            this.log(`🚀 ${sentCount} Runner${sentCount > 1 ? 's' : ''} sent to Zone 1`);
+            this.save();
+        }
     }
 
     spawnNPC(targetZoneIndex) {
@@ -983,26 +993,59 @@ class GameState {
             const card = document.createElement('div');
             card.className = `runner-card state-${r.state.toLowerCase()}`;
 
-            // Build Relic Abbrev String
-            let relicsStr = "";
+            // Current Action Data
+            let isUpgrading = r.state === "UPGRADING";
+            let upgradeType = (isUpgrading && r.currentUpgrade) ? r.currentUpgrade.type : null;
+            let currentUpgradeRelic = (isUpgrading && r.currentUpgrade && r.currentUpgrade.type === 'RELIC') ? r.currentUpgrade.relicType : null;
+
+            // Stats Colors
+            let dpsClass = (isUpgrading && upgradeType === 'DPS') ? 'text-green' : 'text-white';
+            let zpClass = (isUpgrading && upgradeType === 'DPS') ? 'text-red' : 'text-white';
+            let fragClass = (isUpgrading && upgradeType === 'RELIC') ? 'text-red' : 'text-white';
+
+            // ZP Value Calculation
+            let displayZP = r.zpCollected;
+            if (isUpgrading) {
+                // If upgrading, show ZP remaining in queue to be processed
+                let pending = r.upgradeQueue.filter(t => t.type === 'DPS').reduce((sum, t) => sum + t.remaining, 0);
+                if (r.currentUpgrade && r.currentUpgrade.type === 'DPS') pending += r.currentUpgrade.remaining;
+                displayZP = pending;
+            }
+
+            // Fragment Value Calculation
+            let displayFrags = 0;
+            if (isUpgrading) {
+                // Sum of fragments remaining in queue
+                let pending = r.upgradeQueue.filter(t => t.type === 'RELIC').reduce((sum, t) => sum + t.remaining, 0);
+                if (r.currentUpgrade && r.currentUpgrade.type === 'RELIC') pending += r.currentUpgrade.remaining;
+                displayFrags = pending;
+            } else {
+                // During Run or Ready: Sum of fragments collected this run + banked fragments is handled by inventory usually?
+                // The prompt says: "update as the runner is on a run and collecting fragments"
+                // r.fragmentsCollected holds run loot. r.fragments holds persistent bank.
+                // We should show the sum of both.
+                let runTotal = Object.values(r.fragmentsCollected).reduce((a,b)=>a+b, 0);
+                let bankTotal = Object.values(r.fragments).reduce((a,b)=>a+b, 0);
+                displayFrags = runTotal + bankTotal;
+            }
+
+            // Build Relic Grid
+            let relicsHtml = '<div class="relic-grid-container">';
             RELIC_TYPES.forEach(type => {
                 let val = r.relics[type] || 0;
                 let abbrev = RELIC_ABBREVS[type];
-                relicsStr += `${abbrev} T${val} `;
+                let cellClass = (currentUpgradeRelic === type) ? 'text-green' : 'text-white';
+                relicsHtml += `<div class="relic-cell ${cellClass}">${abbrev} T${val}</div>`;
             });
-
-            // Total Fragments
-            let totalFrags = Object.values(r.fragments).reduce((a,b)=>a+b, 0);
+            relicsHtml += '</div>';
 
             // Upgrading Bar Logic
             let upgradeHtml = '';
-            if (r.state === "UPGRADING") {
+            if (isUpgrading) {
                 let current = r.currentUpgrade;
                 if (current) {
                     let pct = 100 - (current.remaining / current.total * 100);
-                    let label = "";
-                    if (current.type === 'DPS') label = "Converting ZP to DPS...";
-                    else label = `Upgrading ${current.relicType}...`;
+                    let label = current.type === 'DPS' ? "Upgrading DPS" : "Upgrading Relics";
 
                     upgradeHtml = `
                         <div class="upgrade-progress-container">
@@ -1020,22 +1063,24 @@ class GameState {
                 sendBtn = `<button class="send-btn" onclick="game.sendRunnerById(${r.id})">SEND</button>`;
             }
 
-            // Status Badge
+            // Status Badge & Icon
             let statusText = r.state;
+            let icon = r.getEmoji();
             if (r.state === "RUNNING") statusText = "ON RUN";
+            if (r.state === "UPGRADING") icon = "🔧";
 
             card.innerHTML = `
                 <div class="runner-header">
-                    <span class="runner-name">${r.name}</span>
+                    <span class="runner-name">${icon} ${r.name}</span>
                     <span class="runner-state state-${r.state.toLowerCase()}">${statusText}</span>
                 </div>
                 <div class="runner-stats-grid">
-                    <div><span class="stat-label">DPS:</span> <span class="stat-val">${formatLargeNumber(r.baseDPS)}</span></div>
+                    <div><span class="stat-label">DPS:</span> <span class="stat-val ${dpsClass}">${formatLargeNumber(r.baseDPS)}</span></div>
                     <div><span class="stat-label">Fatigue:</span> <span class="stat-val">${Math.floor(r.fatigue)}/${r.getCap()}</span></div>
-                    <div><span class="stat-label">ZP Found:</span> <span class="stat-val">${formatLargeNumber(r.zpCollected)}</span></div>
-                    <div><span class="stat-label">Fragments:</span> <span class="stat-val">${formatLargeNumber(totalFrags)}</span></div>
+                    <div><span class="stat-label">ZP Found:</span> <span class="stat-val ${zpClass}">${formatLargeNumber(displayZP)}</span></div>
+                    <div><span class="stat-label">Fragments:</span> <span class="stat-val ${fragClass}">${formatLargeNumber(displayFrags)}</span></div>
                 </div>
-                <div class="relic-tiers-display">${relicsStr}</div>
+                ${relicsHtml}
                 ${upgradeHtml}
                 ${sendBtn}
             `;
