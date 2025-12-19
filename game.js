@@ -246,6 +246,13 @@ class Runner {
         return eff;
     }
 
+    getDPSGain() {
+        if (this.isNPC) return 0;
+        let base = 0.5;
+        const str = this.relicsSnapshot["STRENGTH"] || 0;
+        return base + (str * 0.1);
+    }
+
     getCap() {
         if (this.isNPC) return Infinity;
         // Use SNAPSHOT relics for cap during run? Yes.
@@ -722,12 +729,8 @@ class GameState {
                 if (completedLevel % 10 === 0) this.awardZP(r, 1);
                 if (completedLevel % 100 === 0) this.awardZP(r, 10);
 
-                // DPS Gain on Run? (Prompt said "ZP... added to base DPS when they warp back")
-                // Original code had "r.dps += r.getDPSGain()".
-                // New requirement: "ZP collected... added... when they warp back".
-                // So no immediate DPS gain?
-                // "ZP will no longer be globally shared... They'll collect ZP... to upgrade themselves... when the runner warps back"
-                // Assuming no mid-run DPS growth from ZP.
+                // DPS Gain on Run
+                r.dps += r.getDPSGain();
 
                 if (r.globalLevel % 10 === 0) {
                     const stealTier = r.relicsSnapshot["STEAL"] || 0;
