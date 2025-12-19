@@ -11,6 +11,31 @@ const BOSS_HEALTH_MULTIPLIER = 50;
 const ZONE_BOSS_HEALTH_MULTIPLIER = 250;
 const HIDEOUT_BOSS_MULTIPLIER = 1000;
 
+// Game Balance Constants
+const INITIAL_RUNNER_COUNT = 10;
+const RUNNER_STARTING_DPS = 200;
+const DPS_GAIN_PER_LEVEL_BASE = 0.5;
+
+const ZP_REWARD_10_LEVELS = 1;
+const ZP_REWARD_100_LEVELS = 10;
+const ZP_REWARD_MAP_PIECE = 1;
+const MAP_COMPLETED_BONUS_DPS = 5;
+
+const MAP_PIECE_BASE_CHANCE = 0.01;
+const RELIC_FRAGMENT_CHANCE = 0.1;
+
+// Relic Configuration
+const RELIC_UPGRADE_BASE_COST = 25;
+const RELIC_UPGRADE_COST_PER_TIER = 25;
+
+const STRENGTH_RELIC_BONUS = 0.1;   // DPS Multiplier (additive to base)
+const STEAL_RELIC_BONUS = 0.025;    // Chance to double ZP
+const SIDEKICK_RELIC_BONUS = 0.025; // Caravan DPS multiplier
+const SPEED_RELIC_BONUS = 0.025;    // Solo DPS multiplier (catchup)
+const STYLE_RELIC_CAP_BONUS = 4;    // ZP Cap increase
+const SUPPLY_RELIC_BONUS = 0.005;   // Support DPS multiplier
+const SCAN_RELIC_BONUS = 0.001;     // Map piece chance increase
+
 const RELIC_TYPES = [
     "STRENGTH", "SCOOP", "STEAL", "SIDEKICK",
     "SPEED", "STYLE", "SUPPLY", "SCAN"
@@ -22,8 +47,8 @@ const RELIC_ABBREVS = {
 };
 
 const STYLE_EMOJIS = {
-    0: "🛺", 2: "🚗", 4: "🛻", 6: "🚕", 8: "🚓",
-    10: "🚙", 12: "🚑", 14: "🚐", 16: "🚚", 18: "🚌", 20: "🚛"
+    0: "🛺", 2: "🚗", 4: "🚕", 6: "🚓", 8: "🚙",
+    10: "🚑", 12: "🚐", 14: "🚚", 16: "🚒", 18: "🚌", 20: "🚛"
 };
 
 const ENVIRONMENTS = [
@@ -71,7 +96,7 @@ class Runner {
         this.isNPC = isNPC;
 
         // Permanent Stats
-        this.baseDPS = 100;
+        this.baseDPS = RUNNER_STARTING_DPS;
         this.relics = {};
         this.fragments = {}; // The "bank" towards next tier
         RELIC_TYPES.forEach(t => {
@@ -93,7 +118,7 @@ class Runner {
         this.currentSegmentIndex = 0;
         this.stepInSegment = 0;
         this.targetZone = -1;
-        this.dps = 100; // Snapshot for run
+        this.dps = RUNNER_STARTING_DPS; // Snapshot for run
         this.relicsSnapshot = {};
 
         // Lifecycle State
@@ -168,9 +193,9 @@ class Runner {
         this.baseDPS = 0; // Start at 0, build to 100
         this.upgradeQueue = [{
             type: 'DPS',
-            total: 100,
-            remaining: 100,
-            rate: 1 + Math.floor(100 * 0.01) // 2 per sec
+            total: RUNNER_STARTING_DPS,
+            remaining: RUNNER_STARTING_DPS,
+            rate: 1 + Math.floor(RUNNER_STARTING_DPS * 0.01) // 2 per sec
         }];
     }
 
@@ -207,7 +232,7 @@ class Runner {
         // Cost: 25 + (Tier * 25)
         while (true) {
             const tier = this.relics[type];
-            const cost = 25 + (tier * 25);
+            const cost = RELIC_UPGRADE_BASE_COST + (tier * RELIC_UPGRADE_COST_PER_TIER);
             if (this.fragments[type] >= cost) {
                 this.fragments[type] -= cost;
                 this.relics[type]++;
@@ -226,21 +251,21 @@ class Runner {
 
         if (caravanSize > 1) {
             const sidekick = relics["SIDEKICK"] || 0;
-            eff *= (1 + (sidekick * 0.025));
+            eff *= (1 + (sidekick * SIDEKICK_RELIC_BONUS));
         }
 
         if (runnersAhead > 0) {
             const supply = relics["SUPPLY"] || 0;
-            eff *= (1 + (runnersAhead * supply * 0.005));
+            eff *= (1 + (runnersAhead * supply * SUPPLY_RELIC_BONUS));
         }
 
         if (this.zone < highestReachedZone) {
             const speed = relics["SPEED"] || 0;
-            eff *= (1 + (speed * 0.025));
+            eff *= (1 + (speed * SPEED_RELIC_BONUS));
         }
 
         if (mapCompleted) {
-            eff += 5;
+            eff += MAP_COMPLETED_BONUS_DPS;
         }
 
         return eff;
@@ -248,16 +273,16 @@ class Runner {
 
     getDPSGain() {
         if (this.isNPC) return 0;
-        let base = 0.5;
+        let base = DPS_GAIN_PER_LEVEL_BASE;
         const str = this.relicsSnapshot["STRENGTH"] || 0;
-        return base + (str * 0.1);
+        return base + (str * STRENGTH_RELIC_BONUS);
     }
 
     getCap() {
         if (this.isNPC) return Infinity;
         // Use SNAPSHOT relics for cap during run? Yes.
         const style = this.relicsSnapshot["STYLE"] || 0;
-        return BASE_ZP_CAP + (style * 4);
+        return BASE_ZP_CAP + (style * STYLE_RELIC_CAP_BONUS);
     }
 
     getEmoji() {
@@ -494,11 +519,11 @@ class GameState {
         // Let's create them as needed.
         if (this.runners.length === 0) {
             // First time setup
-            for(let i=0; i<10; i++) {
+            for(let i=0; i<INITIAL_RUNNER_COUNT; i++) {
                 let r = new Runner(i, `Runner ${i+1}`);
                 if (i === 0) {
                     r.state = "READY";
-                    r.baseDPS = 100;
+                    r.baseDPS = RUNNER_STARTING_DPS;
                 } else {
                     // Others are "locked" conceptually, but we can just not show them.
                     // But requirement says: "other 9... appear one by one... upgrading state"
@@ -687,7 +712,7 @@ class GameState {
 
                     if (!this.mapPieces[z][pieceIdx]) {
                         const scanTier = r.relicsSnapshot["SCAN"] || 0;
-                        const baseChance = 0.05 + (scanTier * 0.001); // 5% base
+                        const baseChance = MAP_PIECE_BASE_CHANCE + (scanTier * SCAN_RELIC_BONUS); // 5% base
 
                         let boostKey = `${z}_${pieceIdx}`;
                         let currentBoost = this.mapPieceBoosts[boostKey] || 0;
@@ -695,7 +720,7 @@ class GameState {
 
                         if (Math.random() < totalChance) {
                              this.mapPieces[z][pieceIdx] = true;
-                             if (!r.isNPC) this.awardZP(r, 1);
+                             if (!r.isNPC) this.awardZP(r, ZP_REWARD_MAP_PIECE);
                              delete this.mapPieceBoosts[boostKey];
 
                              // Check Full
@@ -731,17 +756,17 @@ class GameState {
                 r.dps += r.getDPSGain();
 
                 if (completedLevel % 10 === 0) {
-                    this.awardZP(r, 1);
+                    this.awardZP(r, ZP_REWARD_10_LEVELS);
 
                     const stealTier = r.relicsSnapshot["STEAL"] || 0;
-                    if (Math.random() < (stealTier * 0.025)) {
-                         this.awardZP(r, 1, true);
+                    if (Math.random() < (stealTier * STEAL_RELIC_BONUS)) {
+                         this.awardZP(r, ZP_REWARD_10_LEVELS, true);
                     }
 
-                    if (Math.random() < 0.1) this.awardFragment(r);
+                    if (Math.random() < RELIC_FRAGMENT_CHANCE) this.awardFragment(r);
                 }
 
-                if (completedLevel % 100 === 0) this.awardZP(r, 10);
+                if (completedLevel % 100 === 0) this.awardZP(r, ZP_REWARD_100_LEVELS);
             }
 
             r.zone = Math.floor((r.globalLevel - 1) / LEVELS_PER_ZONE);
@@ -1377,7 +1402,7 @@ class GameState {
                 if (data.runners) {
                     this.runners = data.runners.map(d => {
                         let r = new Runner(d.id, d.name, false);
-                        r.baseDPS = d.baseDPS || 100;
+                        r.baseDPS = d.baseDPS || RUNNER_STARTING_DPS;
                         r.relics = d.relics || r.relics;
                         r.fragments = d.fragments || r.fragments;
 
@@ -1397,7 +1422,7 @@ class GameState {
                         r.barrierHealth = d.barrierHealth || DEFAULT_BARRIER_HEALTH;
                         r.currentSegmentIndex = d.currentSegmentIndex || 0;
                         r.stepInSegment = d.stepInSegment || 0;
-                        r.dps = d.dps || 100;
+                        r.dps = d.dps || RUNNER_STARTING_DPS;
                         r.relicsSnapshot = d.relicsSnapshot || r.relics;
 
                         return r;
