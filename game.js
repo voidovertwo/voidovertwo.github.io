@@ -508,10 +508,18 @@ class GameState {
 
         this.loopId = null;
         this.saveLoopId = null;
+
+        // Mobile Tabs State
+        this.currentMobileTab = 1; // Default to Tracker (index 1)
+        this.touchStartX = 0;
+        this.touchEndX = 0;
     }
 
     start() {
         this.load();
+
+        // Init Mobile UI
+        this.initMobileUI();
 
         // Ensure at least 10 runners exist in data, even if hidden
         // Total runners possible: 10 (base) + 40 (levels) = 50.
@@ -543,6 +551,68 @@ class GameState {
 
         this.loopId = setInterval(() => this.update(), UPDATE_INTERVAL);
         this.saveLoopId = setInterval(() => this.save(), SAVE_INTERVAL);
+    }
+
+    initMobileUI() {
+        // Event Listeners for Tab Buttons
+        const buttons = document.querySelectorAll('.tab-btn');
+        buttons.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const tabIndex = parseInt(e.target.getAttribute('data-tab'));
+                this.switchMobileTab(tabIndex);
+            });
+        });
+
+        // Swipe Gestures
+        const layout = document.getElementById('game-layout');
+
+        layout.addEventListener('touchstart', (e) => {
+            this.touchStartX = e.changedTouches[0].screenX;
+        }, {passive: true});
+
+        layout.addEventListener('touchend', (e) => {
+            this.touchEndX = e.changedTouches[0].screenX;
+            this.handleGesture();
+        }, {passive: true});
+
+        // Set initial state
+        this.switchMobileTab(this.currentMobileTab);
+    }
+
+    handleGesture() {
+        if (this.touchEndX < this.touchStartX - 50) {
+            // Swipe Left (Go to next tab)
+            if (this.currentMobileTab < 2) {
+                this.switchMobileTab(this.currentMobileTab + 1);
+            }
+        }
+        if (this.touchEndX > this.touchStartX + 50) {
+            // Swipe Right (Go to prev tab)
+            if (this.currentMobileTab > 0) {
+                this.switchMobileTab(this.currentMobileTab - 1);
+            }
+        }
+    }
+
+    switchMobileTab(index) {
+        this.currentMobileTab = index;
+        const layout = document.getElementById('game-layout');
+
+        // Remove all tab classes
+        layout.classList.remove('mobile-tab-0', 'mobile-tab-1', 'mobile-tab-2');
+
+        // Add active tab class
+        layout.classList.add(`mobile-tab-${index}`);
+
+        // Update button states
+        const buttons = document.querySelectorAll('.tab-btn');
+        buttons.forEach(btn => {
+            if (parseInt(btn.getAttribute('data-tab')) === index) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
     }
 
     log(msg) {

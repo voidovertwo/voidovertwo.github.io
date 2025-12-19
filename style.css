@@ -356,3 +356,108 @@ h2 {
 ::-webkit-scrollbar-track { background: #1e1e1e; }
 ::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: #555; }
+
+/* Mobile Navigation */
+#mobile-tab-nav {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    #game-layout {
+        display: block;
+        height: 100vh;
+        overflow: hidden;
+        position: relative;
+    }
+
+    /* Tabs Navigation */
+    #mobile-tab-nav {
+        display: flex;
+        justify-content: space-around;
+        background-color: #252525;
+        border-bottom: 1px solid var(--border-color);
+        padding: 0.5rem;
+        height: 50px;
+        align-items: center;
+        width: 100%;
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 100;
+    }
+
+    .tab-btn {
+        background: none;
+        border: none;
+        color: #888;
+        font-size: 1rem;
+        font-weight: bold;
+        cursor: pointer;
+        padding: 0.5rem 1rem;
+        border-bottom: 2px solid transparent;
+        transition: all 0.2s;
+    }
+
+    .tab-btn.active {
+        color: var(--accent-color);
+        border-bottom-color: var(--accent-color);
+    }
+
+    /* Columns handling */
+    .game-column {
+        display: none; /* Hide all by default */
+        position: absolute;
+        top: 50px; /* Below nav */
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        height: calc(100% - 50px);
+        border-right: none;
+    }
+
+    /* Specific Tab Views */
+
+    /* Tab 0: Squad */
+    #game-layout.mobile-tab-0 #col-main {
+        display: flex;
+        z-index: 10;
+    }
+
+    /* Tab 1: Tracker + Log Footer */
+    #game-layout.mobile-tab-1 #col-tracker {
+        display: flex;
+        z-index: 10;
+        padding-bottom: 150px; /* Space for log footer */
+    }
+
+    #game-layout.mobile-tab-1 #col-log {
+        display: flex; /* Show log as well */
+        z-index: 20;
+        top: auto; /* Unset top */
+        bottom: 0;
+        height: 150px; /* Fixed footer height */
+        border-top: 1px solid var(--accent-color);
+        background-color: #111;
+        box-shadow: 0 -2px 10px rgba(0,0,0,0.5);
+    }
+
+    #game-layout.mobile-tab-1 #col-log .column-header {
+         /* Hide big header for the footer log version to save space?
+            Or keep it small. Let's make it very small or hide.
+            User asked for "Log on bottom of screen".
+            Let's keep header but make it compact. */
+        padding: 0.2rem;
+        min-height: auto;
+    }
+    #game-layout.mobile-tab-1 #col-log h2 {
+        font-size: 0.8rem;
+        margin: 0;
+        border: none;
+    }
+
+    /* Tab 2: Map */
+    #game-layout.mobile-tab-2 #col-map {
+        display: flex;
+        z-index: 10;
+    }
+}
