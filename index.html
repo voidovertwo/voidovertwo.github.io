@@ -8,35 +8,20 @@
 </head>
 <body>
     <div id="game-layout">
-        <!-- Column 1: ZONERUNNERS (Controls/Stats) -->
+        <!-- Column 1: ZONERUNNERS (Squad Management) -->
         <div id="col-main" class="game-column">
             <h1>ZONERUNNERS</h1>
 
-            <div id="global-stats" class="module">
-                <h2>Resources</h2>
-                <div class="stat-row">
-                    <span>Global ZP:</span>
-                    <span id="global-zp">100</span>
+            <div id="squad-header" class="module">
+                <div class="squad-stats">
+                    <h2 id="squad-level-display">Squad Level 0</h2>
+                    <div id="squad-counts">Ready: 0 | Upgrading: 0 | On Run: 0</div>
                 </div>
-                <div class="stat-row">
-                    <span>Pending ZP:</span>
-                    <span id="pending-zp" class="pending">0</span>
-                </div>
+                <button id="send-all-btn" class="action-btn">SEND ALL</button>
             </div>
 
-            <div id="actions" class="module">
-                <h2>Control Center</h2>
-                <button id="send-runner-btn" class="action-btn">
-                    Send Runner<br>
-                    <span class="subtext">Cost: <span id="runner-cost">10</span> ZP</span>
-                </button>
-            </div>
-
-            <div id="relics-module" class="module">
-                <h2>Relics</h2>
-                <div id="relics-list">
-                    <!-- Relics populated by JS -->
-                </div>
+            <div id="runner-list-container" class="module">
+                <!-- Runner Cards Populated by JS -->
             </div>
 
              <div id="controls-module" class="module">

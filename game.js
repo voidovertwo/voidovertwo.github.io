@@ -1,10 +1,8 @@
 // Constants
 const BASE_ZP_CAP = 20;
-const COST_BASE = 100;
-const COST_MULTIPLIER = 1.1;
 const UPDATE_INTERVAL = 1000; // 1 second
 const SAVE_INTERVAL = 60000; // 60 seconds
-const SAVE_KEY = "zonerunners_save_v2";
+const SAVE_KEY = "zonerunners_save_v3"; // Version bump
 const DEFAULT_BARRIER_HEALTH = 10;
 const WAVES_PER_LEVEL = 10;
 const LEVELS_PER_TILE = 10;
@@ -17,6 +15,11 @@ const RELIC_TYPES = [
     "STRENGTH", "SCOOP", "STEAL", "SIDEKICK",
     "SPEED", "STYLE", "SUPPLY", "SCAN"
 ];
+
+const RELIC_ABBREVS = {
+    "STRENGTH": "STR", "SCOOP": "SCO", "STEAL": "STE", "SIDEKICK": "SDK",
+    "SPEED": "SPE", "STYLE": "STY", "SUPPLY": "SUP", "SCAN": "SCA"
+};
 
 const STYLE_EMOJIS = {
     0: "🛺", 2: "🚗", 4: "🛻", 6: "🚕", 8: "🚓",
@@ -62,35 +65,163 @@ function formatRange(numbers) {
 }
 
 class Runner {
-    constructor(id, name, dps, globalRelics, isNPC = false) {
+    constructor(id, name, isNPC = false) {
         this.id = id;
         this.name = name;
-        this.dps = dps;
         this.isNPC = isNPC;
-        this.targetZone = -1;
 
-        this.relicsSnapshot = { ...globalRelics };
+        // Permanent Stats
+        this.baseDPS = 100;
+        this.relics = {};
+        this.fragments = {}; // The "bank" towards next tier
+        RELIC_TYPES.forEach(t => {
+            this.relics[t] = 0;
+            this.fragments[t] = 0;
+        });
+
+        // Run State
+        this.fatigue = 0;
+        this.zpCollected = 0; // Accumulated on current run
+        this.fragmentsCollected = {}; // Accumulated on current run
+        RELIC_TYPES.forEach(t => this.fragmentsCollected[t] = 0);
 
         this.zone = 0;
         this.levelInZone = 1;
         this.globalLevel = 1;
         this.wave = 1;
-
         this.barrierHealth = DEFAULT_BARRIER_HEALTH;
-        this.zpCollected = 0;
-        this.fatigue = 0;
-        this.fragmentsCollected = {};
-
-        RELIC_TYPES.forEach(t => this.fragmentsCollected[t] = 0);
-
         this.currentSegmentIndex = 0;
         this.stepInSegment = 0;
+        this.targetZone = -1;
+        this.dps = 100; // Snapshot for run
+        this.relicsSnapshot = {};
+
+        // Lifecycle State
+        this.state = "READY"; // READY, RUNNING, UPGRADING
+        this.upgradeQueue = [];
+        this.currentUpgrade = null;
+    }
+
+    startRun() {
+        this.state = "RUNNING";
+        this.zone = 0;
+        this.levelInZone = 1;
+        this.globalLevel = 1;
+        this.wave = 1;
+        this.barrierHealth = DEFAULT_BARRIER_HEALTH;
+        this.currentSegmentIndex = 0;
+        this.stepInSegment = 0;
+
+        this.zpCollected = 0;
+        RELIC_TYPES.forEach(t => this.fragmentsCollected[t] = 0);
+
+        // Snapshot stats
+        this.dps = this.baseDPS;
+        this.relicsSnapshot = { ...this.relics };
+    }
+
+    warp() {
+        this.state = "UPGRADING";
+
+        // Fatigue resets on warp
+        this.fatigue = 0;
+
+        // Queue Upgrades
+        this.upgradeQueue = [];
+
+        // 1. DPS Upgrade
+        if (this.zpCollected > 0) {
+            this.upgradeQueue.push({
+                type: 'DPS',
+                total: this.zpCollected,
+                remaining: this.zpCollected,
+                rate: 1 + Math.floor(this.zpCollected * 0.01)
+            });
+        }
+
+        // 2. Relic Upgrades
+        RELIC_TYPES.forEach(type => {
+            const amount = this.fragmentsCollected[type];
+            if (amount > 0) {
+                this.upgradeQueue.push({
+                    type: 'RELIC',
+                    relicType: type,
+                    total: amount,
+                    remaining: amount,
+                    rate: 1 + Math.floor(amount * 0.01)
+                });
+            }
+        });
+
+        // Clear run collection (moved to queue)
+        this.zpCollected = 0;
+        RELIC_TYPES.forEach(t => this.fragmentsCollected[t] = 0);
+
+        if (this.upgradeQueue.length === 0) {
+            this.state = "READY";
+        }
+    }
+
+    // For new runners
+    initializeWithPhantomZP() {
+        this.state = "UPGRADING";
+        this.baseDPS = 0; // Start at 0, build to 100
+        this.upgradeQueue = [{
+            type: 'DPS',
+            total: 100,
+            remaining: 100,
+            rate: 1 + Math.floor(100 * 0.01) // 2 per sec
+        }];
+    }
+
+    processUpgrades(dt) { // dt in seconds
+        if (this.state !== "UPGRADING") return;
+
+        if (!this.currentUpgrade) {
+            if (this.upgradeQueue.length > 0) {
+                this.currentUpgrade = this.upgradeQueue.shift();
+            } else {
+                this.state = "READY";
+                return;
+            }
+        }
+
+        const task = this.currentUpgrade;
+        const amount = Math.min(task.remaining, task.rate * dt);
+
+        task.remaining -= amount;
+
+        if (task.type === 'DPS') {
+            this.baseDPS += amount;
+        } else if (task.type === 'RELIC') {
+            this.fragments[task.relicType] += amount;
+            this.checkRelicLevelUp(task.relicType);
+        }
+
+        if (task.remaining <= 0) {
+            this.currentUpgrade = null;
+        }
+    }
+
+    checkRelicLevelUp(type) {
+        // Cost: 25 + (Tier * 25)
+        while (true) {
+            const tier = this.relics[type];
+            const cost = 25 + (tier * 25);
+            if (this.fragments[type] >= cost) {
+                this.fragments[type] -= cost;
+                this.relics[type]++;
+                game.log(`${this.name} upgraded ${type} to Tier ${this.relics[type]}!`);
+            } else {
+                break;
+            }
+        }
     }
 
     getEffectiveDPS(caravanSize, runnersAhead, highestReachedZone, mapCompleted) {
         if (this.isNPC) return 999999999;
 
-        let eff = this.dps;
+        let eff = this.dps; // Uses snapshot DPS
         const relics = this.relicsSnapshot;
 
         if (caravanSize > 1) {
@@ -115,22 +246,27 @@ class Runner {
         return eff;
     }
 
-    getDPSGain() {
-        if (this.isNPC) return 0;
-        let base = 0.5;
-        const str = this.relicsSnapshot["STRENGTH"] || 0;
-        return base + (str * 0.1);
-    }
-
     getCap() {
         if (this.isNPC) return Infinity;
+        // Use SNAPSHOT relics for cap during run? Yes.
         const style = this.relicsSnapshot["STYLE"] || 0;
         return BASE_ZP_CAP + (style * 4);
     }
 
     getEmoji() {
         if (this.isNPC) return "🚧";
-        const tier = this.relicsSnapshot["STYLE"] || 0;
+        // Use current relics for display in list, snapshot for map?
+        // Usually snapshot if running, current if not.
+        // But getEmoji is used in map rendering (Running).
+        // Let's use relicsSnapshot if available (running), else relics.
+
+        let tier = 0;
+        if (this.state === "RUNNING") {
+             tier = this.relicsSnapshot["STYLE"] || 0;
+        } else {
+             tier = this.relics["STYLE"] || 0;
+        }
+
         let t = Math.floor(tier / 2) * 2;
         if (t > 20) t = 20;
         return STYLE_EMOJIS[t] || "🛺";
@@ -317,11 +453,10 @@ class MapSegment {
 
 class GameState {
     constructor() {
-        this.globalZP = 10000;
-        this.runnersSentCount = 0;
         this.runners = [];
-        this.relics = {};
-        this.relicFragments = {};
+        this.squadLevel = 0;
+        this.totalWarps = 0;
+        this.visibleRunnersCount = 1;
 
         this.mapSegments = [];
         this.activePatternIndex = -1;
@@ -339,25 +474,40 @@ class GameState {
 
         this.maxStepPerSegment = {};
 
-        RELIC_TYPES.forEach(type => {
-            this.relics[type] = 0;
-            this.relicFragments[type] = 0;
-        });
-
         this.loopId = null;
         this.saveLoopId = null;
     }
 
     start() {
         this.load();
+
+        // Ensure at least 10 runners exist in data, even if hidden
+        // Total runners possible: 10 (base) + 40 (levels) = 50.
+        // We'll create them as needed or pre-populate?
+        // Let's create them as needed.
+        if (this.runners.length === 0) {
+            // First time setup
+            for(let i=0; i<10; i++) {
+                let r = new Runner(i, `Runner ${i+1}`);
+                if (i === 0) {
+                    r.state = "READY";
+                    r.baseDPS = 100;
+                } else {
+                    // Others are "locked" conceptually, but we can just not show them.
+                    // But requirement says: "other 9... appear one by one... upgrading state"
+                    // We'll handle this in update() or a specific check.
+                    // Let's just create Runner 1 for now.
+                }
+                if (i === 0) this.runners.push(r);
+            }
+        }
+
         while (this.mapSegments.length < 2) {
             this.generateNextMapSegment();
         }
-        this.renderRelics();
-        this.updateCostDisplay();
-        this.updateGlobalZPDisplay();
         this.renderMap();
         this.updateMapProgressDisplay();
+        this.updateRunnerList();
 
         this.loopId = setInterval(() => this.update(), UPDATE_INTERVAL);
         this.saveLoopId = setInterval(() => this.save(), SAVE_INTERVAL);
@@ -381,177 +531,239 @@ class GameState {
         }
     }
 
+    getMaxRunners() {
+        return 10 + this.squadLevel;
+    }
+
+    getNextLevelThreshold() {
+        if (this.squadLevel >= 40) return Infinity;
+        return (this.squadLevel + 1) * 10;
+    }
+
     update() {
+        // 1. Process NPC Spawning
         this.processNPCSpawning();
 
-        let sortedRunners = [...this.runners].sort((a, b) => {
-            if (a.zone !== b.zone) return b.zone - a.zone;
-            return b.levelInZone - a.levelInZone;
-        });
-
-        let caravans = {};
-        this.runners.forEach(r => {
-            let key = `${r.globalLevel}`;
-            if (!caravans[key]) caravans[key] = [];
-            caravans[key].push(r);
-
-            if (this.maxStepPerSegment[r.currentSegmentIndex] === undefined || r.stepInSegment > this.maxStepPerSegment[r.currentSegmentIndex]) {
-                this.maxStepPerSegment[r.currentSegmentIndex] = r.stepInSegment;
-            }
-        });
-
-        for (let key in caravans) {
-            let group = caravans[key];
-
-            group.sort((a, b) => {
-                if (a.isNPC && !b.isNPC) return -1;
-                if (!a.isNPC && b.isNPC) return 1;
-                let sA = a.relicsSnapshot["STYLE"] || 0;
-                let sB = b.relicsSnapshot["STYLE"] || 0;
-                return sB - sA;
-            });
-
-            let leader = group[0];
-            let runnersAhead = this.runners.filter(r => r.globalLevel > leader.globalLevel).length;
-            let currentZone = Math.floor(leader.globalLevel / LEVELS_PER_ZONE);
-
-            let isConquered = this.conqueredZones.includes(currentZone);
-
-            let zonePieces = this.mapPieces[currentZone] || [];
-            let isMapped = zonePieces.length === 100 && zonePieces.every(Boolean);
-
-            let totalDPS = group.reduce((sum, r) =>
-                sum + r.getEffectiveDPS(
-                    group.length,
-                    runnersAhead,
-                    this.highestReachedZone,
-                    isMapped
-                ), 0);
-
-            leader.barrierHealth -= totalDPS;
-
-            if (leader.barrierHealth <= 0) {
-                // Wave Complete
-                leader.wave++;
-
-                let maxWaves = this.getWavesForLevel(leader.globalLevel);
-
-                if (leader.wave > maxWaves) {
-                    // Level Complete
-
-                    // Check Hideout Victory
-                    let z = Math.floor((leader.globalLevel - 1) / LEVELS_PER_ZONE);
-                    let levelInZ = ((leader.globalLevel - 1) % LEVELS_PER_ZONE) + 1;
-
-                    if (this.activeHideouts.has(z) && levelInZ === 100) {
-                        this.activeHideouts.delete(z);
-                        this.pendingRoads.add(z);
-                        this.log(`⚔️ Hideout in Zone ${z+1} CLEARED! Road construction pending...`);
-                    }
-
-                    leader.levelInZone++;
-                    leader.globalLevel++;
-                    leader.wave = 1;
-
-                    group.forEach(r => {
-                        // Map Piece Collection (Per Runner)
-                        if (!r.isNPC) {
-                            // Using (leader.globalLevel - 2) because leader was just incremented by 1
-                            let z = Math.floor((leader.globalLevel - 2) / LEVELS_PER_ZONE);
-                            let pieceIdx = (leader.globalLevel - 2) % LEVELS_PER_ZONE;
-
-                            if (z >= 0 && pieceIdx >= 0) {
-                                if (!this.mapPieces[z]) this.mapPieces[z] = Array(100).fill(false);
-
-                                if (!this.mapPieces[z][pieceIdx]) {
-                                    const scanTier = r.relicsSnapshot["SCAN"] || 0;
-                                    const baseChance = 0.01 + (scanTier * 0.001);
-
-                                    let boostKey = `${z}_${pieceIdx}`;
-                                    let currentBoost = this.mapPieceBoosts[boostKey] || 0;
-                                    let totalChance = baseChance + (currentBoost / 100.0);
-
-                                    if (Math.random() < totalChance) {
-                                         this.mapPieces[z][pieceIdx] = true;
-                                         if (!r.isNPC) this.awardZP(r, 1);
-                                         delete this.mapPieceBoosts[boostKey];
-                                         // Check Full
-                                         if (this.mapPieces[z].every(Boolean)) {
-                                             if (!this.conqueredZones.includes(z) && !this.activeHideouts.has(z) && !this.zonesReadyForHideout.has(z) && !this.pendingRoads.has(z)) {
-                                                 let bossLevel = (z + 1) * LEVELS_PER_ZONE;
-                                                 let busy = this.runners.some(r => !r.isNPC && r.globalLevel === bossLevel);
-
-                                                 if (busy) {
-                                                     this.zonesReadyForHideout.add(z);
-                                                     this.log(`🗺️ Zone ${z+1} Fully Mapped! Hideout waiting for area clear...`);
-                                                 } else {
-                                                     this.activeHideouts.add(z);
-                                                     this.log(`🏰 Bandit Hideout Spawned in Zone ${z+1}!`);
-                                                 }
-                                             }
-                                         }
-                                    } else {
-                                        this.mapPieceBoosts[boostKey] = currentBoost + 1;
-                                    }
-                                }
-                            }
-                        }
-
-                        r.levelInZone = leader.levelInZone;
-                        r.globalLevel = leader.globalLevel;
-                        r.wave = 1;
-
-                        if (!r.isNPC) {
-                            let completedLevel = leader.globalLevel - 1;
-                            if (completedLevel % 10 === 0) this.awardZP(r, 1);
-                            if (completedLevel % 100 === 0) this.awardZP(r, 10);
-
-                            r.dps += r.getDPSGain();
-
-                            if (r.globalLevel % 10 === 0) {
-                                const stealTier = r.relicsSnapshot["STEAL"] || 0;
-                                if (Math.random() < (stealTier * 0.025)) {
-                                     this.awardZP(r, 1, true);
-                                }
-                            }
-
-                            if (Math.random() < 0.1) this.awardFragment(r);
-                        }
-
-                        r.zone = Math.floor((r.globalLevel - 1) / LEVELS_PER_ZONE);
-                    });
-
-                    if (leader.globalLevel % LEVELS_PER_TILE === 1 && leader.globalLevel > 1) {
-                        this.moveVisualStep(group);
-                    }
-
-                    if (leader.isNPC && (leader.globalLevel - 1) % LEVELS_PER_ZONE === 0) {
-                        let finishedZone = Math.floor((leader.globalLevel - 2) / LEVELS_PER_ZONE);
-
-                        if (finishedZone === leader.targetZone) {
-                             if (!this.conqueredZones.includes(finishedZone)) {
-                                this.conqueredZones.push(finishedZone);
-                                this.log(`🏗️ Road Construction Complete for Zone ${finishedZone+1}!`);
-                             }
-                             this.runners = this.runners.filter(r => r !== leader);
-                             this.npcCooldownTimestamp = Date.now() + 10000;
-                        }
-                    }
-
-                    let zNew = Math.floor((leader.globalLevel - 1) / LEVELS_PER_ZONE);
-                    if (zNew > this.highestReachedZone) this.highestReachedZone = zNew;
-
-                } else {
-                    group.forEach(r => r.wave = leader.wave);
-                }
-
-                let newHP = this.calculateBarrierHealth(leader.globalLevel, leader.wave);
-                group.forEach(r => r.barrierHealth = newHP);
-            } else {
-                group.forEach(r => r.barrierHealth = leader.barrierHealth);
+        // 2. Manage Runner Unlocks
+        const max = this.getMaxRunners();
+        // Ensure we have 'max' runners instantiated or appearing
+        if (this.runners.length < max) {
+            // Check if last runner is ready/running
+            const last = this.runners[this.runners.length - 1];
+            if (last && (last.state === "READY" || last.state === "RUNNING")) {
+                // Spawn next
+                let id = this.runners.length;
+                let name = `Runner ${id+1}`;
+                let newRunner = new Runner(id, name);
+                newRunner.initializeWithPhantomZP();
+                this.runners.push(newRunner);
             }
         }
 
+        // 3. Process Upgrades for Local Runners
+        this.runners.forEach(r => {
+            if (r.state === "UPGRADING") {
+                r.processUpgrades(UPDATE_INTERVAL / 1000);
+            }
+        });
+
+        // 4. Run Logic (Movement, Fighting)
+        let activeRunners = this.runners.filter(r => r.state === "RUNNING" || r.isNPC);
+
+        if (activeRunners.length > 0) {
+            let sortedRunners = [...activeRunners].sort((a, b) => {
+                if (a.zone !== b.zone) return b.zone - a.zone;
+                return b.levelInZone - a.levelInZone;
+            });
+
+            let caravans = {};
+            sortedRunners.forEach(r => {
+                let key = `${r.globalLevel}`;
+                if (!caravans[key]) caravans[key] = [];
+                caravans[key].push(r);
+
+                if (this.maxStepPerSegment[r.currentSegmentIndex] === undefined || r.stepInSegment > this.maxStepPerSegment[r.currentSegmentIndex]) {
+                    this.maxStepPerSegment[r.currentSegmentIndex] = r.stepInSegment;
+                }
+            });
+
+            for (let key in caravans) {
+                let group = caravans[key];
+
+                group.sort((a, b) => {
+                    if (a.isNPC && !b.isNPC) return -1;
+                    if (!a.isNPC && b.isNPC) return 1;
+                    let sA = a.relicsSnapshot["STYLE"] || 0;
+                    let sB = b.relicsSnapshot["STYLE"] || 0;
+                    return sB - sA;
+                });
+
+                let leader = group[0];
+                let runnersAhead = activeRunners.filter(r => r.globalLevel > leader.globalLevel).length;
+                let currentZone = Math.floor(leader.globalLevel / LEVELS_PER_ZONE);
+
+                let isConquered = this.conqueredZones.includes(currentZone);
+                let zonePieces = this.mapPieces[currentZone] || [];
+                let isMapped = zonePieces.length === 100 && zonePieces.every(Boolean);
+
+                let totalDPS = group.reduce((sum, r) =>
+                    sum + r.getEffectiveDPS(
+                        group.length,
+                        runnersAhead,
+                        this.highestReachedZone,
+                        isMapped
+                    ), 0);
+
+                leader.barrierHealth -= totalDPS;
+
+                if (leader.barrierHealth <= 0) {
+                    // Wave Complete
+                    leader.wave++;
+
+                    let maxWaves = this.getWavesForLevel(leader.globalLevel);
+
+                    if (leader.wave > maxWaves) {
+                        // Level Complete
+                        this.handleLevelComplete(leader, group);
+                    } else {
+                        group.forEach(r => r.wave = leader.wave);
+                    }
+
+                    let newHP = this.calculateBarrierHealth(leader.globalLevel, leader.wave);
+                    group.forEach(r => r.barrierHealth = newHP);
+                } else {
+                    group.forEach(r => r.barrierHealth = leader.barrierHealth);
+                }
+            }
+        }
+
+        // 5. Check Fatigue and Warp
+        activeRunners.forEach((r, i) => {
+            if (!r.isNPC && r.fatigue >= r.getCap()) {
+                this.warpRunner(r);
+            }
+        });
+
+        // 6. Check Hideouts
+        this.checkHideoutSpawns();
+
+        this.ensureMapSegments();
+        this.updateTracker(); // Right column (Active Runs)
+        this.updateRunnerList(); // Left column (Management)
+        this.renderMap();
+        this.updateMapProgressDisplay();
+    }
+
+    handleLevelComplete(leader, group) {
+        // Check Hideout Victory
+        let z = Math.floor((leader.globalLevel - 1) / LEVELS_PER_ZONE);
+        let levelInZ = ((leader.globalLevel - 1) % LEVELS_PER_ZONE) + 1;
+
+        if (this.activeHideouts.has(z) && levelInZ === 100) {
+            this.activeHideouts.delete(z);
+            this.pendingRoads.add(z);
+            this.log(`⚔️ Hideout in Zone ${z+1} CLEARED! Road construction pending...`);
+        }
+
+        leader.levelInZone++;
+        leader.globalLevel++;
+        leader.wave = 1;
+
+        group.forEach(r => {
+            // Map Piece Collection
+            if (!r.isNPC) {
+                let z = Math.floor((leader.globalLevel - 2) / LEVELS_PER_ZONE);
+                let pieceIdx = (leader.globalLevel - 2) % LEVELS_PER_ZONE;
+
+                if (z >= 0 && pieceIdx >= 0) {
+                    if (!this.mapPieces[z]) this.mapPieces[z] = Array(100).fill(false);
+
+                    if (!this.mapPieces[z][pieceIdx]) {
+                        const scanTier = r.relicsSnapshot["SCAN"] || 0;
+                        const baseChance = 0.05 + (scanTier * 0.001); // 5% base
+
+                        let boostKey = `${z}_${pieceIdx}`;
+                        let currentBoost = this.mapPieceBoosts[boostKey] || 0;
+                        let totalChance = baseChance + (currentBoost / 100.0);
+
+                        if (Math.random() < totalChance) {
+                             this.mapPieces[z][pieceIdx] = true;
+                             if (!r.isNPC) this.awardZP(r, 1);
+                             delete this.mapPieceBoosts[boostKey];
+
+                             // Check Full
+                             if (this.mapPieces[z].every(Boolean)) {
+                                 if (!this.conqueredZones.includes(z) && !this.activeHideouts.has(z) && !this.zonesReadyForHideout.has(z) && !this.pendingRoads.has(z)) {
+                                     let bossLevel = (z + 1) * LEVELS_PER_ZONE;
+                                     let busy = this.runners.some(r => !r.isNPC && r.globalLevel === bossLevel);
+
+                                     if (busy) {
+                                         this.zonesReadyForHideout.add(z);
+                                         this.log(`🗺️ Zone ${z+1} Fully Mapped! Hideout waiting for area clear...`);
+                                     } else {
+                                         this.activeHideouts.add(z);
+                                         this.log(`🏰 Bandit Hideout Spawned in Zone ${z+1}!`);
+                                     }
+                                 }
+                             }
+                        } else {
+                            this.mapPieceBoosts[boostKey] = currentBoost + 1;
+                        }
+                    }
+                }
+            }
+
+            r.levelInZone = leader.levelInZone;
+            r.globalLevel = leader.globalLevel;
+            r.wave = 1;
+
+            if (!r.isNPC) {
+                let completedLevel = leader.globalLevel - 1;
+                if (completedLevel % 10 === 0) this.awardZP(r, 1);
+                if (completedLevel % 100 === 0) this.awardZP(r, 10);
+
+                // DPS Gain on Run? (Prompt said "ZP... added to base DPS when they warp back")
+                // Original code had "r.dps += r.getDPSGain()".
+                // New requirement: "ZP collected... added... when they warp back".
+                // So no immediate DPS gain?
+                // "ZP will no longer be globally shared... They'll collect ZP... to upgrade themselves... when the runner warps back"
+                // Assuming no mid-run DPS growth from ZP.
+
+                if (r.globalLevel % 10 === 0) {
+                    const stealTier = r.relicsSnapshot["STEAL"] || 0;
+                    if (Math.random() < (stealTier * 0.025)) {
+                         this.awardZP(r, 1, true);
+                    }
+                }
+
+                if (Math.random() < 0.1) this.awardFragment(r);
+            }
+
+            r.zone = Math.floor((r.globalLevel - 1) / LEVELS_PER_ZONE);
+        });
+
+        if (leader.globalLevel % LEVELS_PER_TILE === 1 && leader.globalLevel > 1) {
+            this.moveVisualStep(group);
+        }
+
+        if (leader.isNPC && (leader.globalLevel - 1) % LEVELS_PER_ZONE === 0) {
+            let finishedZone = Math.floor((leader.globalLevel - 2) / LEVELS_PER_ZONE);
+
+            if (finishedZone === leader.targetZone) {
+                 if (!this.conqueredZones.includes(finishedZone)) {
+                    this.conqueredZones.push(finishedZone);
+                    this.log(`🏗️ Road Construction Complete for Zone ${finishedZone+1}!`);
+                 }
+                 this.runners = this.runners.filter(r => r !== leader);
+                 this.npcCooldownTimestamp = Date.now() + 10000;
+            }
+        }
+
+        let zNew = Math.floor((leader.globalLevel - 1) / LEVELS_PER_ZONE);
+        if (zNew > this.highestReachedZone) this.highestReachedZone = zNew;
+    }
+
+    checkHideoutSpawns() {
         this.zonesReadyForHideout.forEach(z => {
              let bossLevel = (z + 1) * LEVELS_PER_ZONE;
              let busy = this.runners.some(r => !r.isNPC && r.globalLevel === bossLevel);
@@ -561,20 +773,6 @@ class GameState {
                  this.log(`🏰 Area clear! Bandit Hideout Spawned in Zone ${z+1}!`);
              }
         });
-
-        for (let i = this.runners.length - 1; i >= 0; i--) {
-            let r = this.runners[i];
-            if (!r.isNPC && r.fatigue >= r.getCap()) {
-                this.warpRunner(r, i);
-            }
-        }
-
-        this.ensureMapSegments();
-        this.updateTracker();
-        this.updateGlobalZPDisplay();
-        this.renderMap();
-        this.updateMapProgressDisplay();
-        this.renderRelics();
     }
 
     processNPCSpawning() {
@@ -586,9 +784,6 @@ class GameState {
 
         let target = pending[0];
 
-        // Check if previous road is built
-        // If target is Zone 0 (Zone 1), no previous road needed.
-        // If target is Zone 1 (Zone 2), need Zone 0 (Zone 1) road built.
         if (target === 0 || this.conqueredZones.includes(target - 1)) {
             this.pendingRoads.delete(target);
             this.spawnNPC(target);
@@ -616,7 +811,7 @@ class GameState {
     awardFragment(runner) {
         let type = RELIC_TYPES[Math.floor(Math.random() * RELIC_TYPES.length)];
         runner.fragmentsCollected[type]++;
-        this.log(`${runner.name} found ${type} fragment`);
+        // this.log(`${runner.name} found ${type} fragment`); // Spammy?
     }
 
     getWavesForLevel(globalLevel) {
@@ -659,71 +854,65 @@ class GameState {
         return Math.floor(health);
     }
 
-    warpRunner(runner, index) {
-        this.globalZP += runner.zpCollected;
-        for (let type in runner.fragmentsCollected) {
-            this.relicFragments[type] += runner.fragmentsCollected[type];
+    warpRunner(runner) {
+        this.log(`🌀 ${runner.name} warped! Collected +${runner.zpCollected} ZP`);
+
+        // Count for squad level
+        this.totalWarps++;
+        let prevLevel = this.squadLevel;
+        let threshold = this.getNextLevelThreshold();
+        if (this.totalWarps >= threshold) {
+            // Need to check cumulative logic?
+            // "first level is at 10 runners... then second level after another 20..."
+            // Actually, my getNextLevelThreshold implies cumulative warps?
+            // "10 runners warped back" = Total 10.
+            // "after another 20" = Total 30.
+            // "after another 30" = Total 60.
+
+            // We need to track how many warps occurred *since last level* or just compare against a total curve.
+            // Let's compute the curve.
+            // Lvl 0: 0.
+            // Lvl 1: 10.
+            // Lvl 2: 10+20=30.
+            // Lvl 3: 10+20+30=60.
+            // Formula: Sum(10*i) for i=1 to L.
+
+            // Let's check if we leveled up.
+            let requiredForNext = 0;
+            for(let i=1; i<=this.squadLevel+1; i++) requiredForNext += i*10;
+
+            if (this.totalWarps >= requiredForNext && this.squadLevel < 40) {
+                this.squadLevel++;
+                this.log(`🌟 SQUAD LEVEL UP! Now Level ${this.squadLevel} (Max Runners: ${this.getMaxRunners()})`);
+            }
         }
-        this.runners.splice(index, 1);
-        this.log(`🌀 ${runner.name} warped! +${runner.zpCollected} ZP`);
-        this.updateGlobalZPDisplay();
-        this.updateCostDisplay();
+
+        runner.warp();
+        this.save();
     }
 
-    getRunnerCost() {
-        return Math.max(10, Math.ceil(this.globalZP * 0.10));
-    }
-
-    sendRunner() {
-        const cost = this.getRunnerCost();
-        if (this.globalZP >= cost) {
-            this.globalZP -= cost;
-            this.runnersSentCount++;
-            let id = Date.now() + Math.random();
-            let name = "Runner " + this.runnersSentCount;
-            let runner = new Runner(id, name, cost, this.relics);
-
-            runner.currentSegmentIndex = 0;
-            runner.stepInSegment = 0;
-            this.runners.push(runner);
-
-            this.log(`🚀 ${name} sent to Zone 1`);
-            this.updateGlobalZPDisplay();
-            this.updateCostDisplay();
+    sendRunner(runner) {
+        if (runner.state === "READY") {
+            runner.startRun();
+            this.log(`🚀 ${runner.name} sent to Zone 1`);
             this.save();
-            return true;
         }
-        return false;
+    }
+
+    sendAllRunners() {
+        this.runners.forEach(r => {
+            if (r.state === "READY") this.sendRunner(r);
+        });
     }
 
     spawnNPC(targetZoneIndex) {
         let id = Date.now() + Math.random();
         let name = "Construction Team";
-        let runner = new Runner(id, name, 0, this.relics, true);
+        let runner = new Runner(id, name, true);
         runner.targetZone = targetZoneIndex;
-
-        // Always spawn at Zone 1 (Global Level 1)
-        runner.globalLevel = 1;
-        runner.zone = 0;
-        runner.levelInZone = 1;
-        runner.currentSegmentIndex = 0;
-        runner.stepInSegment = 0;
-
+        runner.startRun();
         this.runners.push(runner);
         this.log(`🚧 NPC Team deployed for Zone ${targetZoneIndex+1}`);
-    }
-
-    upgradeRelic(type) {
-        const tier = this.relics[type];
-        if (tier >= 20) return;
-        const cost = 10 + (tier * 10);
-        if (this.relicFragments[type] >= cost) {
-            this.relicFragments[type] -= cost;
-            this.relics[type]++;
-            this.log(`Upgraded ${type} to Tier ${this.relics[type]}`);
-            this.save();
-            this.renderRelics();
-        }
     }
 
     generateNextMapSegment() {
@@ -740,21 +929,128 @@ class GameState {
         this.mapSegments.push(segment);
     }
 
-    updateGlobalZPDisplay() {
-        document.getElementById('global-zp').textContent = Math.floor(this.globalZP);
-        let pending = this.runners.reduce((sum, r) => sum + r.zpCollected, 0);
-        document.getElementById('pending-zp').textContent = pending > 0 ? `+${pending}` : "0";
+    updateRunnerList() {
+        this.renderRunnerManagement();
     }
 
-    updateCostDisplay() {
-        document.getElementById('runner-cost').textContent = this.getRunnerCost();
+    renderRunnerManagement() {
+        const container = document.getElementById('runner-list-container');
+        if (!container) return;
+        container.innerHTML = '';
+
+        // Update Header
+        const visibleRunners = this.runners.filter(r => !r.isNPC);
+        const readyCount = visibleRunners.filter(r => r.state === "READY").length;
+        const upgradingCount = visibleRunners.filter(r => r.state === "UPGRADING").length;
+        const runningCount = visibleRunners.filter(r => r.state === "RUNNING").length;
+
+        document.getElementById('squad-level-display').textContent = `Squad Level ${this.squadLevel}`;
+        document.getElementById('squad-counts').textContent = `Ready: ${readyCount} | Upgrading: ${upgradingCount} | On Run: ${runningCount}`;
+
+        // Sort:
+        // 1. Ready (DPS Desc)
+        // 2. Upgrading (Closest to done? Or just appearing) -> Let's sort by time remaining if we tracked it, but we can sort by collected ZP/Frags remaining.
+        // 3. Running (Fatigue Desc)
+
+        let sorted = [...visibleRunners].sort((a, b) => {
+             if (a.state === "READY" && b.state !== "READY") return -1;
+             if (a.state !== "READY" && b.state === "READY") return 1;
+             if (a.state === "UPGRADING" && b.state !== "UPGRADING") return -1;
+             if (a.state !== "UPGRADING" && b.state === "UPGRADING") return 1;
+
+             if (a.state === "READY") {
+                 return b.baseDPS - a.baseDPS;
+             }
+             if (a.state === "UPGRADING") {
+                 // Sort by how much is left to process? Less left = First
+                 let remA = (a.currentUpgrade ? a.currentUpgrade.remaining : 0) + a.upgradeQueue.reduce((s,t) => s + t.remaining, 0);
+                 let remB = (b.currentUpgrade ? b.currentUpgrade.remaining : 0) + b.upgradeQueue.reduce((s,t) => s + t.remaining, 0);
+                 return remA - remB;
+             }
+             if (a.state === "RUNNING") {
+                 // Closest to fatigue cap (Percentage filled)
+                 let pA = a.fatigue / a.getCap();
+                 let pB = b.fatigue / b.getCap();
+                 return pB - pA;
+             }
+             return 0;
+        });
+
+        sorted.forEach(r => {
+            const card = document.createElement('div');
+            card.className = `runner-card state-${r.state.toLowerCase()}`;
+
+            // Build Relic Abbrev String
+            let relicsStr = "";
+            RELIC_TYPES.forEach(type => {
+                let val = r.relics[type] || 0;
+                let abbrev = RELIC_ABBREVS[type];
+                relicsStr += `${abbrev} T${val} `;
+            });
+
+            // Total Fragments
+            let totalFrags = Object.values(r.fragments).reduce((a,b)=>a+b, 0);
+
+            // Upgrading Bar Logic
+            let upgradeHtml = '';
+            if (r.state === "UPGRADING") {
+                let current = r.currentUpgrade;
+                if (current) {
+                    let pct = 100 - (current.remaining / current.total * 100);
+                    let label = "";
+                    if (current.type === 'DPS') label = "Converting ZP to DPS...";
+                    else label = `Upgrading ${current.relicType}...`;
+
+                    upgradeHtml = `
+                        <div class="upgrade-progress-container">
+                            <div class="upgrade-bar" style="width: ${pct}%"></div>
+                        </div>
+                        <div class="upgrade-text">${label}</div>
+                    `;
+                } else {
+                     upgradeHtml = `<div class="upgrade-text">Finalizing...</div>`;
+                }
+            }
+
+            let sendBtn = '';
+            if (r.state === "READY") {
+                sendBtn = `<button class="send-btn" onclick="game.sendRunnerById(${r.id})">SEND</button>`;
+            }
+
+            // Status Badge
+            let statusText = r.state;
+            if (r.state === "RUNNING") statusText = "ON RUN";
+
+            card.innerHTML = `
+                <div class="runner-header">
+                    <span class="runner-name">${r.name}</span>
+                    <span class="runner-state state-${r.state.toLowerCase()}">${statusText}</span>
+                </div>
+                <div class="runner-stats-grid">
+                    <div><span class="stat-label">DPS:</span> <span class="stat-val">${formatLargeNumber(r.baseDPS)}</span></div>
+                    <div><span class="stat-label">Fatigue:</span> <span class="stat-val">${Math.floor(r.fatigue)}/${r.getCap()}</span></div>
+                    <div><span class="stat-label">ZP Found:</span> <span class="stat-val">${formatLargeNumber(r.zpCollected)}</span></div>
+                    <div><span class="stat-label">Fragments:</span> <span class="stat-val">${formatLargeNumber(totalFrags)}</span></div>
+                </div>
+                <div class="relic-tiers-display">${relicsStr}</div>
+                ${upgradeHtml}
+                ${sendBtn}
+            `;
+            container.appendChild(card);
+        });
+    }
+
+    sendRunnerById(id) {
+        let r = this.runners.find(r => r.id === id);
+        if (r) this.sendRunner(r);
     }
 
     updateTracker() {
         const container = document.getElementById('tracker-list');
         container.innerHTML = '';
-        const activeRunners = this.runners.length;
-        if (activeRunners === 0) {
+        const activeRunners = this.runners.filter(r => r.state === "RUNNING" || r.isNPC);
+
+        if (activeRunners.length === 0) {
              const embed = document.createElement('div');
              embed.className = 'tracker-embed';
              embed.innerHTML = `<div class="tracker-embed-header">🏁 THE TRACKER 🏁</div><div class="tracker-embed-description">No runners currently active.</div>`;
@@ -763,7 +1059,7 @@ class GameState {
         }
 
         let caravans = {};
-        this.runners.forEach(r => {
+        activeRunners.forEach(r => {
             let key = `${r.globalLevel}`;
             if (!caravans[key]) caravans[key] = [];
             caravans[key].push(r);
@@ -782,7 +1078,7 @@ class GameState {
             });
 
             let leader = group[0];
-            let runnersAhead = this.runners.filter(r => r.globalLevel > leader.globalLevel).length;
+            let runnersAhead = activeRunners.filter(r => r.globalLevel > leader.globalLevel).length;
             let currentZone = Math.floor(leader.globalLevel / LEVELS_PER_ZONE);
 
             let zonePieces = this.mapPieces[currentZone] || [];
@@ -810,7 +1106,7 @@ class GameState {
         embed.appendChild(header);
         const description = document.createElement('div');
         description.className = 'tracker-embed-description';
-        description.textContent = `Furthest players on runs in the zones (Runners: ${activeRunners})`;
+        description.textContent = `Furthest players on runs in the zones (Runners: ${activeRunners.length})`;
         embed.appendChild(description);
 
         entities.slice(0, 20).forEach(entity => {
@@ -859,13 +1155,10 @@ class GameState {
         let allZoneIndices = Object.keys(this.mapPieces).map(k => parseInt(k));
         let maxZone = Math.max(...allZoneIndices, this.highestReachedZone, 0);
 
-        // Gather stats
         for (let z = 0; z <= maxZone; z++) {
              let pieces = this.mapPieces[z] || Array(100).fill(false);
              let total = pieces.filter(Boolean).length;
-
              if (total === 100) completedZonesCount++;
-
              for(let t=0; t<10; t++) {
                  let start = t * 10;
                  let end = start + 10;
@@ -875,16 +1168,13 @@ class GameState {
              }
         }
 
-        // Render List (Skipping Conquered/Road Completed)
         for (let z = maxZone; z >= 0; z--) {
             if (this.conqueredZones.includes(z)) continue;
 
             let pieces = this.mapPieces[z] || Array(100).fill(false);
             let total = pieces.filter(Boolean).length;
 
-            if (total === 0 && z < maxZone) {
-                // keep context
-            }
+            if (total === 0 && z < maxZone) { }
 
             let div = document.createElement('div');
             div.className = 'map-progress-zone';
@@ -908,10 +1198,9 @@ class GameState {
             container.appendChild(div);
         }
 
-        // Summary
         let conqueredIndices = new Set(this.conqueredZones);
         this.runners.forEach(r => {
-            if (r.isNPC) conqueredIndices.add(r.targetZone); // Use targetZone for consistency in summary
+            if (r.isNPC) conqueredIndices.add(r.targetZone);
         });
 
         let conqueredList = Array.from(conqueredIndices).sort((a,b)=>a-b);
@@ -939,29 +1228,13 @@ class GameState {
         container.appendChild(summaryDiv);
     }
 
-    renderRelics() {
-        const list = document.getElementById('relics-list');
-        list.innerHTML = '';
-        RELIC_TYPES.forEach(type => {
-            const tier = this.relics[type];
-            const frags = this.relicFragments[type];
-            const cost = 10 + (tier * 10);
-            const isMax = tier >= 20;
-            const canUpgrade = !isMax && frags >= cost;
-            const div = document.createElement('div');
-            div.className = 'relic-item';
-            let btnHtml = isMax ? `<span class="max-badge">MAX</span>` : `<button class="small-btn ${canUpgrade ? '' : 'disabled'}" onclick="game.upgradeRelic('${type}')" ${canUpgrade ? '' : 'disabled'}>Upgrade (${cost})</button>`;
-            div.innerHTML = `<div class="relic-header" style="display:flex; justify-content:space-between;"><span class="relic-name">${type} (T${tier})</span><span class="relic-stats">${frags} Frags</span></div>${btnHtml}`;
-            list.appendChild(div);
-        });
-    }
-
     renderMap() {
         const container = document.getElementById('map-content');
         container.innerHTML = '';
         let maxSeg = 0;
-        if (this.runners.length > 0) {
-            maxSeg = this.runners.reduce((max, r) => Math.max(max, r.currentSegmentIndex), 0);
+        let activeRunners = this.runners.filter(r => r.state === "RUNNING" || r.isNPC);
+        if (activeRunners.length > 0) {
+            maxSeg = activeRunners.reduce((max, r) => Math.max(max, r.currentSegmentIndex), 0);
         }
         let visibleLimit = Math.max(maxSeg + 1, 1);
         let currentGlobalTileOffset = 0;
@@ -971,7 +1244,7 @@ class GameState {
         for (let i = 0; i < this.mapSegments.length; i++) {
             if (i > visibleLimit) break;
             let seg = this.mapSegments[i];
-            let segRunners = this.runners.filter(r => r.currentSegmentIndex === seg.index);
+            let segRunners = activeRunners.filter(r => r.currentSegmentIndex === seg.index);
             let exploredStep = this.maxStepPerSegment[i] !== undefined ? this.maxStepPerSegment[i] : (i < maxSeg ? 9999 : -1);
 
             const div = document.createElement('div');
@@ -992,24 +1265,32 @@ class GameState {
 
     save() {
         const data = {
-            globalZP: this.globalZP,
-            runnersSentCount: this.runnersSentCount,
-            relics: this.relics,
-            relicFragments: this.relicFragments,
-            runners: this.runners.map(r => ({
-                id: r.id, name: r.name, dps: r.dps,
-                globalLevel: r.globalLevel,
-                levelInZone: r.levelInZone,
-                currentSegmentIndex: r.currentSegmentIndex,
-                stepInSegment: r.stepInSegment,
-                wave: r.wave,
-                barrierHealth: r.barrierHealth,
+            squadLevel: this.squadLevel,
+            totalWarps: this.totalWarps,
+            runners: this.runners.filter(r=>!r.isNPC).map(r => ({
+                id: r.id, name: r.name,
+                baseDPS: r.baseDPS,
+                relics: r.relics,
+                fragments: r.fragments,
+
+                state: r.state,
+                upgradeQueue: r.upgradeQueue,
+                currentUpgrade: r.currentUpgrade,
+
                 zpCollected: r.zpCollected,
                 fatigue: r.fatigue,
                 fragmentsCollected: r.fragmentsCollected,
-                relicsSnapshot: r.relicsSnapshot,
-                isNPC: r.isNPC,
-                targetZone: r.targetZone
+
+                // Run snapshot
+                zone: r.zone,
+                levelInZone: r.levelInZone,
+                globalLevel: r.globalLevel,
+                wave: r.wave,
+                barrierHealth: r.barrierHealth,
+                currentSegmentIndex: r.currentSegmentIndex,
+                stepInSegment: r.stepInSegment,
+                dps: r.dps,
+                relicsSnapshot: r.relicsSnapshot
             })),
             activePatternIndex: this.activePatternIndex,
             highestReachedZone: this.highestReachedZone,
@@ -1030,42 +1311,13 @@ class GameState {
         if (raw) {
             try {
                 const data = JSON.parse(raw);
-                this.globalZP = data.globalZP !== undefined ? data.globalZP : 100;
-                this.runnersSentCount = data.runnersSentCount || 0;
-                this.relics = data.relics || this.relics;
-                this.relicFragments = data.relicFragments || this.relicFragments;
+                this.squadLevel = data.squadLevel || 0;
+                this.totalWarps = data.totalWarps || 0;
+
                 this.activePatternIndex = data.activePatternIndex || -1;
                 this.highestReachedZone = data.highestReachedZone || 0;
                 this.mapPieces = data.mapPieces || {};
                 this.mapPieceBoosts = data.mapPieceBoosts || {};
-
-                // Migration
-                for(let k in this.mapPieces) {
-                    if (Array.isArray(this.mapPieces[k])) {
-                        if (this.mapPieces[k].length === 10) {
-                             // Convert [10, 10...] counts to [true, true...] (100)
-                             let old = this.mapPieces[k];
-                             let newArr = Array(100).fill(false);
-                             for(let t=0; t<10; t++) {
-                                 let count = old[t];
-                                 if(typeof count === 'number') {
-                                     for(let c=0; c<count && c<10; c++) {
-                                         newArr[t*10 + c] = true;
-                                     }
-                                 } else if (count === true) {
-                                     // full
-                                     for(let c=0; c<10; c++) newArr[t*10 + c] = true;
-                                 }
-                             }
-                             this.mapPieces[k] = newArr;
-                        }
-                    } else if (this.mapPieces[k] === true) {
-                         this.mapPieces[k] = Array(100).fill(true);
-                    } else {
-                         this.mapPieces[k] = Array(100).fill(false);
-                    }
-                }
-
                 this.completedMaps = data.completedMaps || {};
                 this.conqueredZones = data.conqueredZones || [];
                 this.maxStepPerSegment = data.maxStepPerSegment || {};
@@ -1076,18 +1328,30 @@ class GameState {
 
                 if (data.runners) {
                     this.runners = data.runners.map(d => {
-                        let r = new Runner(d.id, d.name, d.dps, this.relics, d.isNPC || false);
-                        r.globalLevel = d.globalLevel || 1;
+                        let r = new Runner(d.id, d.name, false);
+                        r.baseDPS = d.baseDPS || 100;
+                        r.relics = d.relics || r.relics;
+                        r.fragments = d.fragments || r.fragments;
+
+                        r.state = d.state || "READY";
+                        r.upgradeQueue = d.upgradeQueue || [];
+                        r.currentUpgrade = d.currentUpgrade || null;
+
+                        r.zpCollected = d.zpCollected || 0;
+                        r.fatigue = d.fatigue || 0;
+                        r.fragmentsCollected = d.fragmentsCollected || r.fragmentsCollected;
+
+                        // Run Snapshot
+                        r.zone = d.zone || 0;
                         r.levelInZone = d.levelInZone || 1;
-                        r.currentSegmentIndex = d.currentSegmentIndex !== undefined ? d.currentSegmentIndex : (d.zone || 0);
-                        r.stepInSegment = d.stepInSegment || d.step || 0;
-                        r.wave = d.wave;
-                        r.barrierHealth = d.barrierHealth;
-                        r.zpCollected = d.zpCollected;
-                        r.fatigue = d.fatigue || 0; // Initialize fatigue to 0 for migration
-                        r.fragmentsCollected = d.fragmentsCollected;
-                        r.relicsSnapshot = d.relicsSnapshot || {...this.relics};
-                        r.targetZone = d.targetZone !== undefined ? d.targetZone : -1;
+                        r.globalLevel = d.globalLevel || 1;
+                        r.wave = d.wave || 1;
+                        r.barrierHealth = d.barrierHealth || DEFAULT_BARRIER_HEALTH;
+                        r.currentSegmentIndex = d.currentSegmentIndex || 0;
+                        r.stepInSegment = d.stepInSegment || 0;
+                        r.dps = d.dps || 100;
+                        r.relicsSnapshot = d.relicsSnapshot || r.relics;
+
                         return r;
                     });
                 }
@@ -1107,6 +1371,6 @@ class GameState {
 }
 
 const game = new GameState();
-document.getElementById('send-runner-btn').addEventListener('click', () => { game.sendRunner(); });
+document.getElementById('send-all-btn').addEventListener('click', () => { game.sendAllRunners(); });
 document.getElementById('reset-save-btn').addEventListener('click', () => { if(confirm("Reset all progress?")) { game.resetSave(); }});
 game.start();
