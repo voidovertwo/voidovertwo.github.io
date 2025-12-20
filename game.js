@@ -13,7 +13,7 @@ const HIDEOUT_BOSS_MULTIPLIER = 1000;
 
 // Game Balance Constants
 const INITIAL_RUNNER_COUNT = 10;
-const RUNNER_STARTING_DPS = 200;
+const RUNNER_STARTING_DPS = 400;
 const DPS_GAIN_PER_LEVEL_BASE = 0.5;
 
 const ZP_REWARD_10_LEVELS = 1;
@@ -25,8 +25,8 @@ const MAP_PIECE_BASE_CHANCE = 0.01;
 const RELIC_FRAGMENT_CHANCE = 0.1;
 
 // Relic Configuration
-const RELIC_UPGRADE_BASE_COST = 25;
-const RELIC_UPGRADE_COST_PER_TIER = 25;
+const RELIC_UPGRADE_BASE_COST = 20;
+const RELIC_UPGRADE_COST_PER_TIER = 20;
 
 const STRENGTH_RELIC_BONUS = 0.1;   // DPS Multiplier (additive to base)
 const STEAL_RELIC_BONUS = 0.025;    // Chance to double ZP
