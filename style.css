@@ -466,3 +466,9 @@ h2 {
         padding-bottom: calc(env(safe-area-inset-bottom) + 20px);
     }
 }
+
+/* Upgrading Relic Border */
+.relic-cell.upgrading-relic {
+    border: 1px solid #4CAF50;
+    box-shadow: 0 0 4px rgba(76, 175, 80, 0.5);
+}
