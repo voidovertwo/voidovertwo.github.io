@@ -345,7 +345,7 @@ h2 {
     align-items: center;
     justify-content: center;
     /* Scale font based on container width (15 tiles ~ 6.66% each) */
-    font-size: 4.5cqw;
+    font-size: 5.8cqw;
     font-family: 'Segoe UI Emoji', sans-serif;
     line-height: 1;
 }
