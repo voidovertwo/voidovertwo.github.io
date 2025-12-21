@@ -11,6 +11,15 @@ const BOSS_HEALTH_MULTIPLIER = 50;
 const ZONE_BOSS_HEALTH_MULTIPLIER = 250;
 const HIDEOUT_BOSS_MULTIPLIER = 1000;
 
+const RUNNER_NAMES = [
+    "Bolt", "Scab", "Hex", "Knuck", "Vile", "Rook", "Fume", "Scar", "Jolt", "Pike",
+    "Slate", "Cram", "Blight", "Wasp", "Gash", "Kink", "Dreg", "Mute", "Snare", "Brim",
+    "Choke", "Flux", "Spall", "Nail", "Creep", "Vant", "Shard", "Grime", "Clout", "Tusk",
+    "Rattle", "Skulk", "Fang", "Crave", "Knell", "Silt", "Bruise", "Lynch", "Plume", "Crook",
+    "Fray", "Brawl", "Scorch", "Mangle", "Rift", "Snub", "Cinder", "Wretch", "Spooky", "Omen"
+];
+const NPC_NAME = "Nester's Primo Construction";
+
 // Game Balance Constants
 const INITIAL_RUNNER_COUNT = 10;
 const RUNNER_STARTING_DPS = 400;
@@ -515,6 +524,13 @@ class GameState {
         this.touchEndX = 0;
     }
 
+    getUniqueRunnerName() {
+        const usedNames = new Set(this.runners.filter(r => !r.isNPC).map(r => r.name));
+        const available = RUNNER_NAMES.filter(n => !usedNames.has(n));
+        if (available.length === 0) return `Runner ${this.runners.length + 1}`;
+        return available[Math.floor(Math.random() * available.length)];
+    }
+
     start() {
         this.load();
 
@@ -528,7 +544,8 @@ class GameState {
         if (this.runners.length === 0) {
             // First time setup
             for(let i=0; i<INITIAL_RUNNER_COUNT; i++) {
-                let r = new Runner(i, `Runner ${i+1}`);
+                let name = this.getUniqueRunnerName();
+                let r = new Runner(i, name);
                 if (i === 0) {
                     r.state = "READY";
                     r.baseDPS = RUNNER_STARTING_DPS;
@@ -655,7 +672,7 @@ class GameState {
             if (last && (last.state === "READY" || last.state === "RUNNING")) {
                 // Spawn next
                 let id = this.runners.length;
-                let name = `Runner ${id+1}`;
+                let name = this.getUniqueRunnerName();
                 let newRunner = new Runner(id, name);
                 newRunner.initializeWithPhantomZP();
                 this.runners.push(newRunner);
@@ -1056,7 +1073,7 @@ class GameState {
 
     spawnNPC(targetZoneIndex) {
         let id = Date.now() + Math.random();
-        let name = "Construction Team";
+        let name = NPC_NAME;
         let runner = new Runner(id, name, true);
         runner.targetZone = targetZoneIndex;
         runner.startRun();
@@ -1316,7 +1333,7 @@ class GameState {
             }
 
             if (entity.type === "caravan") {
-                let memberEmojis = entity.members.map(m => m.getEmoji()).join(" ");
+                let memberEmojis = entity.members.map(m => `${m.getEmoji()} ${m.name}`).join(" ");
                 field.innerHTML = `<div class="tracker-field-name">Caravan (${entity.members.length} members)</div>
                     <div class="tracker-field-value">Z: ${entity.zone} | L: ${entity.level} | W: ${entity.wave}/${maxWaves}${barrierType} | B: ${hpFormatted} | CDPS: ${dpsFormatted} | Est: ${estTime}</div>
                     <div class="tracker-field-value">${memberEmojis}</div>`;
