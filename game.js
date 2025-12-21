@@ -760,11 +760,13 @@ class GameState {
         // Check Hideout Victory
         let z = Math.floor((leader.globalLevel - 1) / LEVELS_PER_ZONE);
         let levelInZ = ((leader.globalLevel - 1) % LEVELS_PER_ZONE) + 1;
+        let hideoutCleared = false;
 
         if (this.activeHideouts.has(z) && levelInZ === 100) {
             this.activeHideouts.delete(z);
             this.pendingRoads.add(z);
             this.log(`⚔️ Hideout in Zone ${z+1} CLEARED! Road construction pending...`);
+            hideoutCleared = true;
         }
 
         leader.globalLevel++;
@@ -825,6 +827,22 @@ class GameState {
                 // DPS Gain on Run
                 r.dps += r.getDPSGain();
 
+                // 1. Zone-based Chance (Every Level)
+                // Zone 1 (idx 0) -> 0.1%. Zone 10 (idx 9) -> 1%.
+                let currentZoneIdx = Math.floor((completedLevel - 1) / LEVELS_PER_ZONE);
+                let zoneChance = Math.min(0.01, (currentZoneIdx + 1) * 0.001);
+                if (Math.random() < zoneChance) {
+                     this.awardFragment(r, null, true); // true = checkScoop
+                }
+
+                // 2. 5th Level Chance (5%)
+                if (completedLevel % 10 === 5) {
+                    if (Math.random() < 0.05) {
+                        this.awardFragment(r, null, true);
+                    }
+                }
+
+                // 3. 10th Level Chance (10%) & ZP
                 if (completedLevel % 10 === 0) {
                     this.awardZP(r, ZP_REWARD_10_LEVELS);
 
@@ -833,10 +851,23 @@ class GameState {
                          this.awardZP(r, ZP_REWARD_10_LEVELS, true);
                     }
 
-                    if (Math.random() < RELIC_FRAGMENT_CHANCE) this.awardFragment(r);
+                    if (Math.random() < 0.10) {
+                        this.awardFragment(r, null, true);
+                    }
                 }
 
-                if (completedLevel % 100 === 0) this.awardZP(r, ZP_REWARD_100_LEVELS);
+                // 4. Zone Completion (Level 100)
+                if (completedLevel % 100 === 0) {
+                    this.awardZP(r, ZP_REWARD_100_LEVELS);
+
+                    if (hideoutCleared) {
+                        // Hideout Bundle: 1 of each, NO SCOOP
+                        RELIC_TYPES.forEach(t => this.awardFragment(r, t, false));
+                    } else {
+                        // Normal Zone Boss: 1 Guaranteed, NO SCOOP
+                        this.awardFragment(r, null, false);
+                    }
+                }
             }
 
             r.zone = Math.floor((r.globalLevel - 1) / LEVELS_PER_ZONE);
@@ -908,10 +939,19 @@ class GameState {
         }
     }
 
-    awardFragment(runner) {
-        let type = RELIC_TYPES[Math.floor(Math.random() * RELIC_TYPES.length)];
+    awardFragment(runner, type = null, checkScoop = false) {
+        if (!type) type = RELIC_TYPES[Math.floor(Math.random() * RELIC_TYPES.length)];
         runner.fragmentsCollected[type]++;
         this.log(`${runner.name} found ${type} fragment`);
+
+        if (checkScoop) {
+            const scoopTier = runner.relicsSnapshot["SCOOP"] || 0;
+            if (Math.random() < (scoopTier * 0.025)) {
+                 let bonusType = RELIC_TYPES[Math.floor(Math.random() * RELIC_TYPES.length)];
+                 runner.fragmentsCollected[bonusType]++;
+                 this.log(`${runner.name} SCOOPED extra ${bonusType} fragment!`);
+            }
+        }
     }
 
     getWavesForLevel(globalLevel) {
