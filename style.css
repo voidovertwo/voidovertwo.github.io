@@ -345,7 +345,7 @@ h2 {
     align-items: center;
     justify-content: center;
     /* Scale font based on container width (15 tiles ~ 6.66% each) */
-    font-size: 5.8cqw;
+    font-size: 4.5cqw;
     font-family: 'Segoe UI Emoji', sans-serif;
     line-height: 1;
 }
@@ -357,7 +357,7 @@ h2 {
     font-size: 0.8rem;
     color: #bbb;
     font-family: monospace;
-    max-height: 200px;
+    max-height: 300px; /* Increased to fit Summary + 2 Zones */
     overflow-y: auto;
 }
 .map-progress-zone { margin-bottom: 0.5rem; border-bottom: 1px solid #333; padding-bottom: 0.2rem; }
