@@ -21,8 +21,8 @@ const RUNNER_NAMES = [
 const NPC_NAME = "Nester's Primo Construction";
 
 // Game Balance Constants
-const INITIAL_RUNNER_COUNT = 10;
-const RUNNER_STARTING_DPS = 400;
+const INITIAL_RUNNER_COUNT = 5;
+const RUNNER_STARTING_DPS = 1000;
 const DPS_GAIN_PER_LEVEL_BASE = 0.5;
 
 const ZP_REWARD_10_LEVELS = 1;
@@ -197,7 +197,7 @@ class Runner {
     }
 
     // For new runners
-    initializeWithPhantomZP() {
+    initializeWithPhantomZP(targetRelics = {}) {
         this.state = "UPGRADING";
         this.baseDPS = 0; // Start at 0, build to 100
         this.upgradeQueue = [{
@@ -206,6 +206,23 @@ class Runner {
             remaining: RUNNER_STARTING_DPS,
             rate: 1 + Math.floor(RUNNER_STARTING_DPS * 0.01) // 2 per sec
         }];
+
+        for (const [type, level] of Object.entries(targetRelics)) {
+            let cost = 0;
+            for (let l = 0; l < level; l++) {
+                cost += RELIC_UPGRADE_BASE_COST + (l * RELIC_UPGRADE_COST_PER_TIER);
+            }
+
+            if (cost > 0) {
+                this.upgradeQueue.push({
+                    type: 'RELIC',
+                    relicType: type,
+                    total: cost,
+                    remaining: cost,
+                    rate: 1 + Math.floor(cost * 0.01)
+                });
+            }
+        }
     }
 
     processUpgrades(dt) { // dt in seconds
@@ -228,6 +245,7 @@ class Runner {
         if (task.type === 'DPS') {
             this.baseDPS += amount;
         } else if (task.type === 'RELIC') {
+            // Simulate gathering fragments, then apply
             this.fragments[task.relicType] += amount;
             this.checkRelicLevelUp(task.relicType);
         }
@@ -531,32 +549,84 @@ class GameState {
         return available[Math.floor(Math.random() * available.length)];
     }
 
+    selectStartingRelics() {
+        let t2Used = new Set();
+        let t1Used = new Set();
+
+        this.runners.filter(r => !r.isNPC).forEach(r => {
+            // Check active relics
+            for (const [type, lvl] of Object.entries(r.relics)) {
+                if (lvl >= 2) t2Used.add(type);
+                if (lvl >= 1) t1Used.add(type);
+            }
+            // Also check planned relics if upgrading
+            if (r.state === "UPGRADING" && r.upgradeQueue) {
+                // If they are upgrading a relic, it might not be in r.relics yet?
+                // Actually fragments are queued, so we can't easily know the target level without parsing the queue costs
+                // or just relying on random chance. Given the rarity of collision, checking active relics is decent.
+                // But better to be safe? The queue has 'type' and 'relicType'.
+                // If there's a relic upgrade queued, we can assume it might reach T1 or T2.
+                // Let's stick to checking `r.relics`.
+            }
+        });
+
+        // 1. Pick one T2 Relic
+        let availableForT2 = RELIC_TYPES.filter(t => !t2Used.has(t));
+        if (availableForT2.length === 0) availableForT2 = [...RELIC_TYPES];
+        const t2Choice = availableForT2[Math.floor(Math.random() * availableForT2.length)];
+
+        // 2. Pick two T1 Relics
+        // "Same for both T1 relics" - ensure they are unique if possible
+        let availableForT1 = RELIC_TYPES.filter(t => !t1Used.has(t) && t !== t2Choice);
+        let t1Choices = [];
+
+        if (availableForT1.length >= 2) {
+            // Pick 2 random unique
+            availableForT1.sort(() => Math.random() - 0.5);
+            t1Choices.push(availableForT1[0]);
+            t1Choices.push(availableForT1[1]);
+        } else {
+            // Take what is available
+            t1Choices.push(...availableForT1);
+            // Fill rest
+            let pool = RELIC_TYPES.filter(t => t !== t2Choice && !t1Choices.includes(t));
+            pool.sort(() => Math.random() - 0.5);
+            while (t1Choices.length < 2 && pool.length > 0) {
+                t1Choices.push(pool.pop());
+            }
+        }
+
+        let chosen = { [t2Choice]: 2 };
+        t1Choices.forEach(t => chosen[t] = 1);
+        return chosen;
+    }
+
     start() {
         this.load();
 
         // Init Mobile UI
         this.initMobileUI();
 
-        // Ensure at least 10 runners exist in data, even if hidden
-        // Total runners possible: 10 (base) + 40 (levels) = 50.
-        // We'll create them as needed or pre-populate?
-        // Let's create them as needed.
         if (this.runners.length === 0) {
-            // First time setup
-            for(let i=0; i<INITIAL_RUNNER_COUNT; i++) {
-                let name = this.getUniqueRunnerName();
-                let r = new Runner(i, name);
-                if (i === 0) {
-                    r.state = "READY";
-                    r.baseDPS = RUNNER_STARTING_DPS;
-                } else {
-                    // Others are "locked" conceptually, but we can just not show them.
-                    // But requirement says: "other 9... appear one by one... upgrading state"
-                    // We'll handle this in update() or a specific check.
-                    // Let's just create Runner 1 for now.
-                }
-                if (i === 0) this.runners.push(r);
-            }
+            // First time setup - Create ONLY the first runner
+            let name = this.getUniqueRunnerName();
+            let r = new Runner(0, name);
+            r.state = "READY";
+            r.baseDPS = RUNNER_STARTING_DPS;
+
+            // Apply Starting Relics immediately for Runner 1
+            // 1x T2, 2x T1 (Randomly chosen, though no other runners exist to conflict with)
+            // Just pick random ones
+            let types = [...RELIC_TYPES].sort(() => Math.random() - 0.5);
+            let t2 = types[0];
+            let t1a = types[1];
+            let t1b = types[2];
+            r.relics[t2] = 2;
+            r.relics[t1a] = 1;
+            r.relics[t1b] = 1;
+            r.relicsSnapshot = { ...r.relics }; // Sync snapshot
+
+            this.runners.push(r);
         }
 
         while (this.mapSegments.length < 2) {
@@ -651,11 +721,11 @@ class GameState {
     }
 
     getMaxRunners() {
-        return 10 + this.squadLevel;
+        return INITIAL_RUNNER_COUNT + this.squadLevel;
     }
 
     getNextLevelThreshold() {
-        if (this.squadLevel >= 40) return Infinity;
+        if (this.squadLevel >= 20) return Infinity;
         return (this.squadLevel + 1) * 10;
     }
 
@@ -674,7 +744,10 @@ class GameState {
                 let id = this.runners.length;
                 let name = this.getUniqueRunnerName();
                 let newRunner = new Runner(id, name);
-                newRunner.initializeWithPhantomZP();
+
+                let startingRelics = this.selectStartingRelics();
+                newRunner.initializeWithPhantomZP(startingRelics);
+
                 this.runners.push(newRunner);
             }
         }
@@ -1017,32 +1090,12 @@ class GameState {
 
         // Count for squad level
         this.totalWarps++;
-        let prevLevel = this.squadLevel;
-        let threshold = this.getNextLevelThreshold();
-        if (this.totalWarps >= threshold) {
-            // Need to check cumulative logic?
-            // "first level is at 10 runners... then second level after another 20..."
-            // Actually, my getNextLevelThreshold implies cumulative warps?
-            // "10 runners warped back" = Total 10.
-            // "after another 20" = Total 30.
-            // "after another 30" = Total 60.
 
-            // We need to track how many warps occurred *since last level* or just compare against a total curve.
-            // Let's compute the curve.
-            // Lvl 0: 0.
-            // Lvl 1: 10.
-            // Lvl 2: 10+20=30.
-            // Lvl 3: 10+20+30=60.
-            // Formula: Sum(10*i) for i=1 to L.
+        let requiredForNext = this.getWarpsRequiredForNextLevel();
 
-            // Let's check if we leveled up.
-            let requiredForNext = 0;
-            for(let i=1; i<=this.squadLevel+1; i++) requiredForNext += i*10;
-
-            if (this.totalWarps >= requiredForNext && this.squadLevel < 40) {
-                this.squadLevel++;
-                this.log(`🌟 SQUAD LEVEL UP! Now Level ${this.squadLevel} (Max Runners: ${this.getMaxRunners()})`);
-            }
+        if (this.totalWarps >= requiredForNext && this.squadLevel < 20) {
+            this.squadLevel++;
+            this.log(`🌟 SQUAD LEVEL UP! Now Level ${this.squadLevel} (Max Runners: ${this.getMaxRunners()})`);
         }
 
         runner.warp();
@@ -1099,6 +1152,13 @@ class GameState {
         this.renderRunnerManagement();
     }
 
+    getWarpsRequiredForNextLevel() {
+        // Sum 10 * i for i=1 to currentLevel + 1
+        let total = 0;
+        for (let i = 1; i <= this.squadLevel + 1; i++) total += i * 10;
+        return total;
+    }
+
     renderRunnerManagement() {
         const container = document.getElementById('runner-list-container');
         if (!container) return;
@@ -1110,7 +1170,11 @@ class GameState {
         const upgradingCount = visibleRunners.filter(r => r.state === "UPGRADING").length;
         const runningCount = visibleRunners.filter(r => r.state === "RUNNING").length;
 
-        document.getElementById('squad-level-display').textContent = `Squad Level ${this.squadLevel}`;
+        let required = this.getWarpsRequiredForNextLevel();
+        let remaining = Math.max(0, required - this.totalWarps);
+        let warpsText = (this.squadLevel >= 20) ? "Max Level" : `Warps: ${remaining}`;
+
+        document.getElementById('squad-level-display').innerHTML = `Squad Level ${this.squadLevel} <span style="font-size:0.7em; margin-left:10px; color:#aaa;">(${warpsText})</span>`;
         document.getElementById('squad-counts').textContent = `Ready: ${readyCount} | Upgrading: ${upgradingCount} | On Run: ${runningCount}`;
 
         // Sort:
