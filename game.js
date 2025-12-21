@@ -995,7 +995,8 @@ class GameState {
     }
 
     warpRunner(runner) {
-        this.log(`🌀 ${runner.name} warped! Collected +${runner.zpCollected} ZP`);
+        let totalFragments = Object.values(runner.fragmentsCollected).reduce((a, b) => a + b, 0);
+        this.log(`🌀 ${runner.name} warped! Collected +${runner.zpCollected} ZP and +${totalFragments} fragment(s)`);
 
         // Count for squad level
         this.totalWarps++;
