@@ -270,7 +270,7 @@ class Runner {
         }
     }
 
-    getEffectiveDPS(caravanSize, runnersAhead, highestReachedZone, mapCompleted) {
+    getEffectiveDPS(caravanSize, supplyBonusMultiplier, highestReachedZone, mapCompleted) {
         if (this.isNPC) return 999999999;
 
         let eff = this.dps; // Uses snapshot DPS
@@ -281,9 +281,8 @@ class Runner {
             eff *= (1 + (sidekick * SIDEKICK_RELIC_BONUS));
         }
 
-        if (runnersAhead > 0) {
-            const supply = relics["SUPPLY"] || 0;
-            eff *= (1 + (runnersAhead * supply * SUPPLY_RELIC_BONUS));
+        if (supplyBonusMultiplier > 0) {
+            eff *= (1 + supplyBonusMultiplier);
         }
 
         if (this.zone < highestReachedZone) {
@@ -791,17 +790,26 @@ class GameState {
                 });
 
                 let leader = group[0];
-                let runnersAhead = activeRunners.filter(r => r.globalLevel > leader.globalLevel).length;
                 let currentZone = Math.floor(leader.globalLevel / LEVELS_PER_ZONE);
 
                 let isConquered = this.conqueredZones.includes(currentZone);
                 let zonePieces = this.mapPieces[currentZone] || [];
                 let isMapped = zonePieces.length === 100 && zonePieces.every(Boolean);
 
+                // Calculate accumulated supply bonus from runners strictly ahead
+                let supplyBonusFromAhead = 0;
+                activeRunners.forEach(other => {
+                    // Bonus comes from runners strictly ahead and not NPCs
+                    if (other.globalLevel > leader.globalLevel && !other.isNPC) {
+                        const supplyTier = other.relicsSnapshot["SUPPLY"] || 0;
+                        supplyBonusFromAhead += (supplyTier * SUPPLY_RELIC_BONUS);
+                    }
+                });
+
                 let totalDPS = group.reduce((sum, r) =>
                     sum + r.getEffectiveDPS(
                         group.length,
-                        runnersAhead,
+                        supplyBonusFromAhead,
                         this.highestReachedZone,
                         isMapped
                     ), 0);
@@ -1346,13 +1354,22 @@ class GameState {
             });
 
             let leader = group[0];
-            let runnersAhead = activeRunners.filter(r => r.globalLevel > leader.globalLevel).length;
             let currentZone = Math.floor(leader.globalLevel / LEVELS_PER_ZONE);
 
             let zonePieces = this.mapPieces[currentZone] || [];
             let isMapped = zonePieces.length === 100 && zonePieces.every(Boolean);
 
-            let totalDPS = group.reduce((sum, r) => sum + r.getEffectiveDPS(group.length, runnersAhead, this.highestReachedZone, isMapped), 0);
+            // Calculate accumulated supply bonus from runners strictly ahead
+            let supplyBonusFromAhead = 0;
+            activeRunners.forEach(other => {
+                // Bonus comes from runners strictly ahead and not NPCs
+                if (other.globalLevel > leader.globalLevel && !other.isNPC) {
+                    const supplyTier = other.relicsSnapshot["SUPPLY"] || 0;
+                    supplyBonusFromAhead += (supplyTier * SUPPLY_RELIC_BONUS);
+                }
+            });
+
+            let totalDPS = group.reduce((sum, r) => sum + r.getEffectiveDPS(group.length, supplyBonusFromAhead, this.highestReachedZone, isMapped), 0);
 
             if (group.length > 1) {
                 entities.push({ type: "caravan", zone: Math.floor((leader.globalLevel - 1) / LEVELS_PER_ZONE) + 1, level: leader.levelInZone, wave: leader.wave, hp: leader.barrierHealth, dps: totalDPS, members: group, globalLevel: leader.globalLevel });
