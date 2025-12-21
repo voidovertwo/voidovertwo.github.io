@@ -12,11 +12,11 @@ const ZONE_BOSS_HEALTH_MULTIPLIER = 250;
 const HIDEOUT_BOSS_MULTIPLIER = 1000;
 
 const RUNNER_NAMES = [
-    "Bolt", "Scab", "Hex", "Knuck", "Vile", "Rook", "Fume", "Scar", "Jolt", "Pike",
-    "Slate", "Cram", "Blight", "Wasp", "Gash", "Kink", "Dreg", "Mute", "Snare", "Brim",
-    "Choke", "Flux", "Spall", "Nail", "Creep", "Vant", "Shard", "Grime", "Clout", "Tusk",
-    "Rattle", "Skulk", "Fang", "Crave", "Knell", "Silt", "Bruise", "Lynch", "Plume", "Crook",
-    "Fray", "Brawl", "Scorch", "Mangle", "Rift", "Snub", "Cinder", "Wretch", "Spooky", "Omen"
+    "Bolt", "Scabs", "Hex", "Kronk", "Vile", "Rook", "Fume", "Scar", "Jolt", "Pike",
+    "Spanner", "Cram", "Blight", "Wasp", "Vash", "Scamp", "Dreg", "Wintermute", "Snare", "Tophat",
+    "Choke", "Flux", "Zero", "Nail", "Creep", "Vantage", "Shard", "Grime", "Cloud", "Tusk",
+    "Rattle", "Skulk", "Fangs", "Grave", "Zonos", "Silt", "Bruise", "halfvoid", "Plume", "Crook",
+    "Fray", "Brawler", "Scorch", "Mangle", "Ultra", "Snub", "Cinder", "Wretch", "Spooky", "Omen"
 ];
 const NPC_NAME = "Nester's Primo Construction";
 
