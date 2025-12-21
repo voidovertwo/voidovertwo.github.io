@@ -3,7 +3,7 @@ const BASE_ZP_CAP = 20;
 const UPDATE_INTERVAL = 1000; // 1 second
 const SAVE_INTERVAL = 60000; // 60 seconds
 const SAVE_KEY = "zonerunners_save_v3"; // Version bump
-const DEFAULT_BARRIER_HEALTH = 10;
+const DEFAULT_BARRIER_HEALTH = 1;
 const WAVES_PER_LEVEL = 10;
 const LEVELS_PER_TILE = 10;
 const LEVELS_PER_ZONE = 100;
@@ -13,16 +13,16 @@ const HIDEOUT_BOSS_MULTIPLIER = 1000;
 
 const RUNNER_NAMES = [
     "Bolt", "Scabs", "Hex", "Kronk", "Vile", "Rook", "Fume", "Scar", "Jolt", "Pike",
-    "Spanner", "Cram", "Blight", "Wasp", "Vash", "Scamp", "Dreg", "Wintermute", "Snare", "Tophat",
+    "Spanner", "Cram", "Blight", "Wasp", "Vash", "Scamp", "Dreg", "Mute", "Skull", "Tophat",
     "Choke", "Flux", "Zero", "Nail", "Creep", "Vantage", "Shard", "Grime", "Cloud", "Tusk",
-    "Rattle", "Skulk", "Fangs", "Grave", "Zonos", "Silt", "Bruise", "halfvoid", "Plume", "Crook",
-    "Fray", "Brawler", "Scorch", "Mangle", "Ultra", "Snub", "Cinder", "Wretch", "Spooky", "Omen"
+    "Rattle", "Tank", "Fangs", "Grave", "Zonos", "Silt", "Bruise", "Void", "Plume", "Crook",
+    "Fray", "Brawler", "Scorch", "Mangle", "Ultra", "Stump", "Cinder", "Wretch", "Spooky", "Omen"
 ];
 const NPC_NAME = "Nester's Primo Construction";
 
 // Game Balance Constants
 const INITIAL_RUNNER_COUNT = 5;
-const RUNNER_STARTING_DPS = 1000;
+const RUNNER_STARTING_DPS = 100;
 const DPS_GAIN_PER_LEVEL_BASE = 0.5;
 
 const ZP_REWARD_10_LEVELS = 1;
@@ -34,8 +34,8 @@ const MAP_PIECE_BASE_CHANCE = 0.01;
 const RELIC_FRAGMENT_CHANCE = 0.1;
 
 // Relic Configuration
-const RELIC_UPGRADE_BASE_COST = 20;
-const RELIC_UPGRADE_COST_PER_TIER = 20;
+const RELIC_UPGRADE_BASE_COST = 10;
+const RELIC_UPGRADE_COST_PER_TIER = 10;
 
 const STRENGTH_RELIC_BONUS = 0.1;   // DPS Multiplier (additive to base)
 const STEAL_RELIC_BONUS = 0.025;    // Chance to double ZP
