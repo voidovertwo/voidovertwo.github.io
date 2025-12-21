@@ -340,12 +340,14 @@ h2 {
 .map-cell {
     /* Responsive Desktop Styles */
     flex: 1;
+    min-width: 0; /* Allow shrinking below content size to prevent row overflow */
     aspect-ratio: 1 / 1;
     display: flex;
     align-items: center;
     justify-content: center;
     /* Scale font based on container width (15 tiles ~ 6.66% each) */
-    font-size: 6.0cqw;
+    /* Reduced to 5.0cqw to ensure 15 emojis fit without overlap/overflow on all platforms */
+    font-size: 5.0cqw;
     font-family: 'Segoe UI Emoji', sans-serif;
     line-height: 1;
 }
