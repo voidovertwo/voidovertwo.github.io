@@ -52,6 +52,7 @@ body {
 
 #col-map {
     background-color: var(--map-bg);
+    container-type: inline-size;
 }
 
 .column-header {
@@ -319,6 +320,9 @@ h2 {
     flex-direction: column;
     align-items: center;
     padding-bottom: 2rem;
+    width: 100%; /* Stretch to full width */
+    padding-left: 10px;
+    padding-right: 10px;
 }
 .map-segment {
     margin-bottom: 0;
@@ -326,15 +330,22 @@ h2 {
     user-select: none;
     display: flex;
     flex-direction: column;
+    width: 100%; /* Fill container */
 }
-.map-row { display: flex; justify-content: center; }
+.map-row {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+}
 .map-cell {
-    width: 24px;
-    height: 24px;
+    /* Responsive Desktop Styles */
+    flex: 1;
+    aspect-ratio: 1 / 1;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 1.2rem;
+    /* Scale font based on container width (15 tiles ~ 6.66% each) */
+    font-size: 4.5cqw;
     font-family: 'Segoe UI Emoji', sans-serif;
     line-height: 1;
 }
@@ -464,6 +475,26 @@ h2 {
         display: flex;
         z-index: 10;
         padding-bottom: calc(env(safe-area-inset-bottom) + 20px);
+    }
+
+    /* Restore Fixed Map Layout for Mobile */
+    #map-content {
+        width: auto;
+        padding-left: 0;
+        padding-right: 0;
+    }
+    .map-segment {
+        width: auto;
+    }
+    .map-row {
+        justify-content: center;
+        width: auto;
+    }
+    .map-cell {
+        flex: 0 0 auto;
+        width: 24px;
+        height: 24px;
+        font-size: 1.2rem;
     }
 }
 
