@@ -148,6 +148,10 @@ h2 {
     border-color: #FFC107;
 }
 
+.runner-card.state-queued {
+    border-color: #9C27B0;
+}
+
 .runner-card.state-running {
     border-color: #2196F3;
     opacity: 0.8;
@@ -182,6 +186,7 @@ h2 {
 .runner-state.state-ready { background: #4CAF50; color: #fff; }
 .runner-state.state-running { background: #2196F3; color: #fff; }
 .runner-state.state-upgrading { background: #FFC107; color: #000; }
+.runner-state.state-queued { background: #9C27B0; color: #fff; }
 
 .runner-stats-4-col {
     display: grid;

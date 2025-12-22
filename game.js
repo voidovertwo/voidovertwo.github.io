@@ -137,6 +137,7 @@ class Runner {
         this.state = "READY"; // READY, RUNNING, UPGRADING
         this.upgradeQueue = [];
         this.currentUpgrade = null;
+        this.warpTimestamp = 0;
     }
 
     startRun() {
@@ -224,7 +225,8 @@ class Runner {
     }
 
     warp() {
-        this.state = "UPGRADING";
+        this.state = "QUEUED";
+        this.warpTimestamp = Date.now();
 
         // Durability resets on warp
         this.durability = 0;
@@ -267,7 +269,8 @@ class Runner {
 
     // For new runners
     initializeWithPhantomZP(targetRelics = {}) {
-        this.state = "UPGRADING";
+        this.state = "QUEUED";
+        this.warpTimestamp = Date.now();
         this.baseDPS = 0; // Start at 0, build to 100
         this.upgradeQueue = [{
             type: 'DPS',
@@ -816,14 +819,17 @@ class GameState {
             }
         }
 
-        // 3. Process Upgrades for Local Runners
+        // 3. Manage Upgrade Queue
+        this.manageUpgradeQueue();
+
+        // 4. Process Upgrades for Local Runners
         this.runners.forEach(r => {
             if (r.state === "UPGRADING") {
                 r.processUpgrades(UPDATE_INTERVAL / 1000);
             }
         });
 
-        // 4. Run Logic (Movement, Fighting)
+        // 5. Run Logic (Movement, Fighting)
         let activeRunners = this.runners.filter(r => r.state === "RUNNING" || r.isNPC);
 
         if (activeRunners.length > 0) {
@@ -902,14 +908,14 @@ class GameState {
             }
         }
 
-        // 5. Check Durability and Warp
+        // 6. Check Durability and Warp
         activeRunners.forEach((r, i) => {
             if (!r.isNPC && r.durability >= r.getCap()) {
                 this.warpRunner(r);
             }
         });
 
-        // 6. Check Hideouts
+        // 7. Check Hideouts
         this.checkHideoutSpawns();
 
         this.ensureMapSegments();
@@ -1254,6 +1260,33 @@ class GameState {
         this.mapSegments.push(segment);
     }
 
+    manageUpgradeQueue() {
+        // Every 5th level allows +1 concurrently
+        const maxConcurrent = 1 + Math.floor(this.squadLevel / 5);
+
+        const upgradingRunners = this.runners.filter(r => r.state === "UPGRADING");
+        const activeCount = upgradingRunners.length;
+
+        if (activeCount < maxConcurrent) {
+            const slots = maxConcurrent - activeCount;
+            const queued = this.runners.filter(r => r.state === "QUEUED");
+
+            if (queued.length > 0) {
+                // Sort by Warp Timestamp (First In), then by Base DPS (Tie breaker)
+                queued.sort((a, b) => {
+                    if (a.warpTimestamp !== b.warpTimestamp) return a.warpTimestamp - b.warpTimestamp;
+                    return a.baseDPS - b.baseDPS;
+                });
+
+                for (let i = 0; i < slots && i < queued.length; i++) {
+                    const r = queued[i];
+                    r.state = "UPGRADING";
+                    this.log(`${r.name} started upgrading (Queue Position: ${i+1})`);
+                }
+            }
+        }
+    }
+
     updateRunnerList() {
         this.renderRunnerManagement();
     }
@@ -1285,14 +1318,15 @@ class GameState {
 
         // Sort:
         // 1. Ready (DPS Desc)
-        // 2. Upgrading (Closest to done? Or just appearing) -> Let's sort by time remaining if we tracked it, but we can sort by collected ZP/Frags remaining.
-        // 3. Running (Durability Desc)
+        // 2. Upgrading (Closest to done)
+        // 3. Queued (Warp Time Asc)
+        // 4. Running (Durability Desc)
 
         let sorted = [...visibleRunners].sort((a, b) => {
-             if (a.state === "READY" && b.state !== "READY") return -1;
-             if (a.state !== "READY" && b.state === "READY") return 1;
-             if (a.state === "UPGRADING" && b.state !== "UPGRADING") return -1;
-             if (a.state !== "UPGRADING" && b.state === "UPGRADING") return 1;
+             const priorities = { "READY": 0, "UPGRADING": 1, "QUEUED": 2, "RUNNING": 3 };
+             let pA = priorities[a.state];
+             let pB = priorities[b.state];
+             if (pA !== pB) return pA - pB;
 
              if (a.state === "READY") {
                  return b.baseDPS - a.baseDPS;
@@ -1302,6 +1336,11 @@ class GameState {
                  let remA = (a.currentUpgrade ? a.currentUpgrade.remaining : 0) + a.upgradeQueue.reduce((s,t) => s + t.remaining, 0);
                  let remB = (b.currentUpgrade ? b.currentUpgrade.remaining : 0) + b.upgradeQueue.reduce((s,t) => s + t.remaining, 0);
                  return remA - remB;
+             }
+             if (a.state === "QUEUED") {
+                 // Sort by timestamp
+                 if (a.warpTimestamp !== b.warpTimestamp) return a.warpTimestamp - b.warpTimestamp;
+                 return a.baseDPS - b.baseDPS;
              }
              if (a.state === "RUNNING") {
                  // Closest to durability cap (Percentage filled)
@@ -1318,33 +1357,34 @@ class GameState {
 
             // Current Action Data
             let isUpgrading = r.state === "UPGRADING";
+            let isQueued = r.state === "QUEUED";
             let upgradeType = (isUpgrading && r.currentUpgrade) ? r.currentUpgrade.type : null;
             let currentUpgradeRelic = (isUpgrading && r.currentUpgrade && r.currentUpgrade.type === 'RELIC') ? r.currentUpgrade.relicType : null;
 
             // Stats Colors
-            let dpsClass = (isUpgrading && upgradeType === 'DPS') ? 'text-green' : 'text-white';
-            let zpClass = (isUpgrading && upgradeType === 'DPS') ? 'text-red' : 'text-white';
-            let fragClass = (isUpgrading && upgradeType === 'RELIC') ? 'text-red' : 'text-white';
+            let dpsClass = ((isUpgrading || isQueued) && upgradeType === 'DPS') ? 'text-green' : 'text-white';
+            let zpClass = ((isUpgrading || isQueued) && upgradeType === 'DPS') ? 'text-red' : 'text-white';
+            let fragClass = ((isUpgrading || isQueued) && upgradeType === 'RELIC') ? 'text-red' : 'text-white';
 
-            // ZP Value Calculation
+            // For queued, we don't have currentUpgrade set yet, so upgradeType is null.
+            // But we do know what's in the queue.
+            // If queued, we show pending stats.
+
             let displayZP = r.zpCollected;
-            if (isUpgrading) {
-                // If upgrading, show ZP remaining in queue to be processed
-                let pending = r.upgradeQueue.filter(t => t.type === 'DPS').reduce((sum, t) => sum + t.remaining, 0);
-                if (r.currentUpgrade && r.currentUpgrade.type === 'DPS') pending += r.currentUpgrade.remaining;
-                displayZP = pending;
-            }
-
-            // Fragment Value Calculation
             let displayFrags = 0;
-            if (isUpgrading) {
-                // Sum of fragments remaining in queue
-                let pending = r.upgradeQueue.filter(t => t.type === 'RELIC').reduce((sum, t) => sum + t.remaining, 0);
-                if (r.currentUpgrade && r.currentUpgrade.type === 'RELIC') pending += r.currentUpgrade.remaining;
-                displayFrags = pending;
+
+            if (isUpgrading || isQueued) {
+                // Show ZP remaining in queue
+                let pendingZP = r.upgradeQueue.filter(t => t.type === 'DPS').reduce((sum, t) => sum + t.remaining, 0);
+                if (r.currentUpgrade && r.currentUpgrade.type === 'DPS') pendingZP += r.currentUpgrade.remaining;
+                displayZP = pendingZP;
+
+                // Show fragments remaining in queue
+                let pendingFrags = r.upgradeQueue.filter(t => t.type === 'RELIC').reduce((sum, t) => sum + t.remaining, 0);
+                if (r.currentUpgrade && r.currentUpgrade.type === 'RELIC') pendingFrags += r.currentUpgrade.remaining;
+                displayFrags = pendingFrags;
             } else {
-                // Display only fragments collected during the active run
-                displayFrags = Object.values(r.fragmentsCollected).reduce((a,b)=>a+b, 0);
+                 displayFrags = Object.values(r.fragmentsCollected).reduce((a,b)=>a+b, 0);
             }
 
             // Build Relic Grid
@@ -1394,6 +1434,8 @@ class GameState {
                 } else {
                      upgradeHtml = `<div class="upgrade-text">Finalizing...</div>`;
                 }
+            } else if (isQueued) {
+                 upgradeHtml = `<div class="upgrade-text" style="color:#bbb; margin-top:8px;">Waiting in queue...</div>`;
             }
 
             let sendBtn = '';
@@ -1406,6 +1448,7 @@ class GameState {
             let icon = r.getEmoji();
             if (r.state === "RUNNING") statusText = "ON RUN";
             if (r.state === "UPGRADING") icon = "🔧";
+            if (r.state === "QUEUED") icon = "🔧";
 
             card.innerHTML = `
                 <div class="runner-header">
@@ -1781,6 +1824,7 @@ class GameState {
                         r.state = d.state || "READY";
                         r.upgradeQueue = d.upgradeQueue || [];
                         r.currentUpgrade = d.currentUpgrade || null;
+                        r.warpTimestamp = d.warpTimestamp || 0;
 
                         r.zpCollected = d.zpCollected || 0;
                         r.durability = d.durability !== undefined ? d.durability : (d.fatigue || 0);
