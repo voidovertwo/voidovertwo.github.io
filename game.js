@@ -29,6 +29,7 @@ const ZP_REWARD_10_LEVELS = 1;
 const ZP_REWARD_100_LEVELS = 10;
 const ZP_REWARD_MAP_PIECE = 1;
 const MAP_COMPLETED_BONUS_DPS = 5;
+const ZONE_COMPLETED_BONUS_DPS = 50;
 
 const MAP_PIECE_BASE_CHANCE = 0.01;
 const RELIC_FRAGMENT_CHANCE = 0.1;
@@ -129,6 +130,8 @@ class Runner {
         this.targetZone = -1;
         this.dps = RUNNER_STARTING_DPS; // Snapshot for run
         this.relicsSnapshot = {};
+        this.mapBonusesApplied = new Set();
+        this.zoneBonusesApplied = new Set();
 
         // Lifecycle State
         this.state = "READY"; // READY, RUNNING, UPGRADING
@@ -152,6 +155,72 @@ class Runner {
         // Snapshot stats
         this.dps = this.baseDPS;
         this.relicsSnapshot = { ...this.relics };
+        this.mapBonusesApplied = new Set();
+        this.zoneBonusesApplied = new Set();
+
+        // Apply Bonuses for Constructed Roads
+        // Assuming game.conqueredZones contains Zone indices (0-based) where roads are built
+        // We need to access the game instance to check conqueredZones/mapPieces.
+        // Since `game` is global or passed, we access global `game`.
+        if (typeof game !== 'undefined') {
+            // Apply bonuses for constructed roads
+            game.conqueredZones.forEach(z => {
+                // Zone Bonus
+                if (!this.zoneBonusesApplied.has(z)) {
+                    this.dps += ZONE_COMPLETED_BONUS_DPS;
+                    this.zoneBonusesApplied.add(z);
+                }
+                // Map Bonuses (10 sets per zone)
+                for (let i = 0; i < 10; i++) {
+                     let mapKey = `${z}_${i}`; // Using internal key format logic
+                     // If road is built, all maps in that zone are effectively considered "bonus active"
+                     // or should we check if they are actually completed?
+                     // Original logic: "With Road: ... ALL map set bonuses ... applied immediately"
+                     // So we apply them all for that zone.
+                     if (!this.mapBonusesApplied.has(mapKey)) {
+                         // Check if map is actually completed?
+                         // Python: "for absolute_set_key in game_state.completed_maps..."
+                         // JS: Let's assume if road is built, we get the bonuses regardless or only if completed?
+                         // "Completed Maps ... bonuses ... applied properly".
+                         // Python `start_player_run`:
+                         // `for road_zone_num in game_state.constructed_roads: ... for set_in_zone_offset in range(SETS_PER_ZONE): ... if str(abs_set_for_road) in completed_maps ...`
+                         // So we MUST check if the map is completed even if road exists.
+
+                         // In JS, map completion is per zone array `this.mapPieces[z]`.
+                         let pieces = game.mapPieces[z] || [];
+                         let start = i * 10;
+                         let end = start + 10;
+                         let p = pieces.slice(start, end).filter(Boolean).length;
+                         if (p === 10) {
+                              this.dps += MAP_COMPLETED_BONUS_DPS;
+                              this.mapBonusesApplied.add(mapKey);
+                         }
+                    }
+                }
+            });
+
+            // Apply bonuses for current location (Zone 0 usually) if not covered by road
+            let startZone = 0; // Always starts at 0
+            if (!this.zoneBonusesApplied.has(startZone)) {
+                // Check if Zone 0 is completed
+                let pieces = game.mapPieces[startZone] || [];
+                if (pieces.filter(Boolean).length === 100) {
+                     this.dps += ZONE_COMPLETED_BONUS_DPS;
+                     this.zoneBonusesApplied.add(startZone);
+                }
+            }
+
+            // Check Map 0 in Zone 0
+            let startMapKey = "0_0";
+            if (!this.mapBonusesApplied.has(startMapKey)) {
+                 let pieces = game.mapPieces[0] || [];
+                 let p = pieces.slice(0, 10).filter(Boolean).length;
+                 if (p === 10) {
+                     this.dps += MAP_COMPLETED_BONUS_DPS;
+                     this.mapBonusesApplied.add(startMapKey);
+                 }
+            }
+        }
     }
 
     warp() {
@@ -288,10 +357,6 @@ class Runner {
         if (this.zone < highestReachedZone) {
             const speed = relics["SPEED"] || 0;
             eff *= (1 + (speed * SPEED_RELIC_BONUS));
-        }
-
-        if (mapCompleted) {
-            eff += MAP_COMPLETED_BONUS_DPS;
         }
 
         return eff;
@@ -924,6 +989,39 @@ class GameState {
 
                 // DPS Gain on Run
                 r.dps += r.getDPSGain();
+
+                // NEW: Incremental Map/Zone Bonuses
+                // Entering new level: leader.globalLevel
+                // Determine which Map Set and Zone we are entering.
+                // Levels 1-10 = Set 0. Levels 11-20 = Set 1.
+                // globalLevel is 1-based.
+                let checkLevelIdx = leader.globalLevel - 1; // 0-based index
+                let checkZoneIdx = Math.floor(checkLevelIdx / LEVELS_PER_ZONE);
+                let checkSetInZone = Math.floor((checkLevelIdx % LEVELS_PER_ZONE) / 10);
+                let mapKey = `${checkZoneIdx}_${checkSetInZone}`;
+
+                // Check Map Bonus
+                if (!r.mapBonusesApplied.has(mapKey)) {
+                     // Check if map is completed
+                     let pieces = this.mapPieces[checkZoneIdx] || [];
+                     let start = checkSetInZone * 10;
+                     let end = start + 10;
+                     let p = pieces.slice(start, end).filter(Boolean).length;
+                     if (p === 10) {
+                         r.dps += MAP_COMPLETED_BONUS_DPS;
+                         r.mapBonusesApplied.add(mapKey);
+                     }
+                }
+
+                // Check Zone Bonus (If we just entered a new zone)
+                // Note: This checks every level, but set prevents duplicates.
+                if (!r.zoneBonusesApplied.has(checkZoneIdx)) {
+                    let pieces = this.mapPieces[checkZoneIdx] || [];
+                    if (pieces.filter(Boolean).length === 100) {
+                        r.dps += ZONE_COMPLETED_BONUS_DPS;
+                        r.zoneBonusesApplied.add(checkZoneIdx);
+                    }
+                }
 
                 // 1. Zone-based Chance (Every Level)
                 // Zone 1 (idx 0) -> 0.1%. Zone 10 (idx 9) -> 1%.
@@ -1609,7 +1707,9 @@ class GameState {
                 currentSegmentIndex: r.currentSegmentIndex,
                 stepInSegment: r.stepInSegment,
                 dps: r.dps,
-                relicsSnapshot: r.relicsSnapshot
+                relicsSnapshot: r.relicsSnapshot,
+                mapBonusesApplied: Array.from(r.mapBonusesApplied),
+                zoneBonusesApplied: Array.from(r.zoneBonusesApplied)
             })),
             activePatternIndex: this.activePatternIndex,
             highestReachedZone: this.highestReachedZone,
@@ -1670,6 +1770,8 @@ class GameState {
                         r.stepInSegment = d.stepInSegment || 0;
                         r.dps = d.dps || RUNNER_STARTING_DPS;
                         r.relicsSnapshot = d.relicsSnapshot || r.relics;
+                        r.mapBonusesApplied = new Set(d.mapBonusesApplied || []);
+                        r.zoneBonusesApplied = new Set(d.zoneBonusesApplied || []);
 
                         return r;
                     });
