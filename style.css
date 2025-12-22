@@ -183,17 +183,25 @@ h2 {
 .runner-state.state-running { background: #2196F3; color: #fff; }
 .runner-state.state-upgrading { background: #FFC107; color: #000; }
 
-.runner-stats-grid {
+.runner-stats-4-col {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 2px;
+    font-size: 0.75rem;
+    color: #888;
     margin-bottom: 0.5rem;
-    font-size: 0.85rem;
-    color: #ccc;
+    text-align: center;
 }
 
-.stat-label { color: #888; }
-.stat-val { color: #fff; font-weight: bold; }
+.runner-stats-4-col > div {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.runner-stats-4-col span {
+    font-weight: bold;
+}
 
 /* Text Colors */
 .text-green { color: #4CAF50 !important; transition: color 0.2s; }

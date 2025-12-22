@@ -115,7 +115,7 @@ class Runner {
         });
 
         // Run State
-        this.fatigue = 0;
+        this.durability = 0;
         this.zpCollected = 0; // Accumulated on current run
         this.fragmentsCollected = {}; // Accumulated on current run
         RELIC_TYPES.forEach(t => this.fragmentsCollected[t] = 0);
@@ -226,8 +226,8 @@ class Runner {
     warp() {
         this.state = "UPGRADING";
 
-        // Fatigue resets on warp
-        this.fatigue = 0;
+        // Durability resets on warp
+        this.durability = 0;
 
         // Queue Upgrades
         this.upgradeQueue = [];
@@ -780,7 +780,7 @@ class GameState {
         runner.zpCollected += amount;
         let onRoad = this.conqueredZones.includes(runner.zone);
         if (!onRoad && !isSteal) {
-            runner.fatigue += amount;
+            runner.durability += amount;
         }
     }
 
@@ -902,9 +902,9 @@ class GameState {
             }
         }
 
-        // 5. Check Fatigue and Warp
+        // 5. Check Durability and Warp
         activeRunners.forEach((r, i) => {
-            if (!r.isNPC && r.fatigue >= r.getCap()) {
+            if (!r.isNPC && r.durability >= r.getCap()) {
                 this.warpRunner(r);
             }
         });
@@ -1286,7 +1286,7 @@ class GameState {
         // Sort:
         // 1. Ready (DPS Desc)
         // 2. Upgrading (Closest to done? Or just appearing) -> Let's sort by time remaining if we tracked it, but we can sort by collected ZP/Frags remaining.
-        // 3. Running (Fatigue Desc)
+        // 3. Running (Durability Desc)
 
         let sorted = [...visibleRunners].sort((a, b) => {
              if (a.state === "READY" && b.state !== "READY") return -1;
@@ -1304,9 +1304,9 @@ class GameState {
                  return remA - remB;
              }
              if (a.state === "RUNNING") {
-                 // Closest to fatigue cap (Percentage filled)
-                 let pA = a.fatigue / a.getCap();
-                 let pB = b.fatigue / b.getCap();
+                 // Closest to durability cap (Percentage filled)
+                 let pA = a.durability / a.getCap();
+                 let pB = b.durability / b.getCap();
                  return pB - pA;
              }
              return 0;
@@ -1361,7 +1361,19 @@ class GameState {
                     cellClass = 'text-green upgrading-relic';
                 }
 
-                relicsHtml += `<div class="relic-cell ${cellClass}">${abbrev}|T${val}|${needed}</div>`;
+                // New Logic:
+                // Default: STR | T1 (Hide needed)
+                // Upgrading (Active): T1 | 13 (Hide Name, show needed)
+                let cellContent = "";
+                if (currentUpgradeRelic === type) {
+                    // Active Upgrade
+                    cellContent = `T${val}|${Math.floor(needed)}`;
+                } else {
+                    // Default
+                    cellContent = `${abbrev}|T${val}`;
+                }
+
+                relicsHtml += `<div class="relic-cell ${cellClass}">${cellContent}</div>`;
             });
             relicsHtml += '</div>';
 
@@ -1400,11 +1412,11 @@ class GameState {
                     <span class="runner-name">${icon} ${r.name}</span>
                     <span class="runner-state state-${r.state.toLowerCase()}">${statusText}</span>
                 </div>
-                <div class="runner-stats-grid">
-                    <div><span class="stat-label">DPS:</span> <span class="stat-val ${dpsClass}">${formatLargeNumber(r.baseDPS)}</span></div>
-                    <div><span class="stat-label">Fatigue:</span> <span class="stat-val">${Math.floor(r.fatigue)}/${r.getCap()}</span></div>
-                    <div><span class="stat-label">ZP Found:</span> <span class="stat-val ${zpClass}">${formatLargeNumber(displayZP)}</span></div>
-                    <div><span class="stat-label">Fragments:</span> <span class="stat-val ${fragClass}">${formatLargeNumber(displayFrags)}</span></div>
+                <div class="runner-stats-4-col">
+                    <div>DPS: <span class="${dpsClass}">${formatLargeNumber(r.baseDPS)}</span></div>
+                    <div>ZP: <span class="${zpClass}">${formatLargeNumber(displayZP)}</span></div>
+                    <div>Frags: <span class="${fragClass}">${formatLargeNumber(displayFrags)}</span></div>
+                    <div>DUR: <span class="text-white">${Math.floor(r.durability)}/${r.getCap()}</span></div>
                 </div>
                 ${relicsHtml}
                 ${upgradeHtml}
@@ -1489,7 +1501,13 @@ class GameState {
         embed.appendChild(header);
         const description = document.createElement('div');
         description.className = 'tracker-embed-description';
-        description.textContent = `Furthest players on runs in the zones (Runners: ${activeRunners.length})`;
+
+        let runnersCount = activeRunners.filter(r => !r.isNPC).length;
+        let npcCount = activeRunners.filter(r => r.isNPC).length;
+        let descText = `Runners: ${runnersCount}`;
+        if (npcCount > 0) descText += ` | NPCs: ${npcCount}`;
+
+        description.textContent = descText;
         embed.appendChild(description);
 
         entities.slice(0, 20).forEach(entity => {
@@ -1653,9 +1671,17 @@ class GameState {
 
     formatTime(seconds) {
         if (seconds === Infinity) return "∞";
-        if (seconds < 60) return `in ${seconds}s`;
-        if (seconds < 3600) return `in ${Math.ceil(seconds / 60)}m`;
-        return `in ${Math.floor(seconds / 3600)}h ${Math.ceil((seconds % 3600) / 60)}m`;
+        if (seconds < 60) return `${seconds}s`;
+        if (seconds < 3600) {
+            let m = Math.floor(seconds / 60);
+            let s = seconds % 60;
+            return `${m}m${s}s`;
+        }
+        let h = Math.floor(seconds / 3600);
+        let rem = seconds % 3600;
+        let m = Math.floor(rem / 60);
+        let s = rem % 60;
+        return `${h}h${m}m${s}s`;
     }
 
     calculateLevelCompletionTime(entity, maxWaves) {
@@ -1695,7 +1721,7 @@ class GameState {
                 currentUpgrade: r.currentUpgrade,
 
                 zpCollected: r.zpCollected,
-                fatigue: r.fatigue,
+                durability: r.durability,
                 fragmentsCollected: r.fragmentsCollected,
 
                 // Run snapshot
@@ -1757,7 +1783,7 @@ class GameState {
                         r.currentUpgrade = d.currentUpgrade || null;
 
                         r.zpCollected = d.zpCollected || 0;
-                        r.fatigue = d.fatigue || 0;
+                        r.durability = d.durability !== undefined ? d.durability : (d.fatigue || 0);
                         r.fragmentsCollected = d.fragmentsCollected || r.fragmentsCollected;
 
                         // Run Snapshot
