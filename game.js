@@ -342,7 +342,7 @@ class Runner {
         }
     }
 
-    getEffectiveDPS(caravanSize, supplyBonusMultiplier, highestReachedZone, mapCompleted) {
+    getEffectiveDPS(caravanSize, supplyBonusMultiplier, isOnRoad, mapCompleted) {
         if (this.isNPC) return this.dps;
 
         let eff = this.dps; // Uses snapshot DPS
@@ -357,7 +357,7 @@ class Runner {
             eff *= (1 + supplyBonusMultiplier);
         }
 
-        if (this.zone < highestReachedZone) {
+        if (isOnRoad) {
             const speed = relics["SPEED"] || 0;
             eff *= (1 + (speed * SPEED_RELIC_BONUS));
         }
@@ -872,9 +872,9 @@ class GameState {
                 });
 
                 let leader = group[0];
-                let currentZone = Math.floor(leader.globalLevel / LEVELS_PER_ZONE);
+                let currentZone = Math.floor((leader.globalLevel - 1) / LEVELS_PER_ZONE);
 
-                let isConquered = this.conqueredZones.includes(currentZone);
+                let isOnRoad = this.conqueredZones.includes(currentZone);
                 let zonePieces = this.mapPieces[currentZone] || [];
                 let isMapped = zonePieces.length === 100 && zonePieces.every(Boolean);
 
@@ -892,7 +892,7 @@ class GameState {
                     sum + r.getEffectiveDPS(
                         group.length,
                         supplyBonusFromAhead,
-                        this.highestReachedZone,
+                        isOnRoad,
                         isMapped
                     ), 0);
 
@@ -1556,8 +1556,9 @@ class GameState {
             });
 
             let leader = group[0];
-            let currentZone = Math.floor(leader.globalLevel / LEVELS_PER_ZONE);
+            let currentZone = Math.floor((leader.globalLevel - 1) / LEVELS_PER_ZONE);
 
+            let isOnRoad = this.conqueredZones.includes(currentZone);
             let zonePieces = this.mapPieces[currentZone] || [];
             let isMapped = zonePieces.length === 100 && zonePieces.every(Boolean);
 
@@ -1571,7 +1572,7 @@ class GameState {
                 }
             });
 
-            let totalDPS = group.reduce((sum, r) => sum + r.getEffectiveDPS(group.length, supplyBonusFromAhead, this.highestReachedZone, isMapped), 0);
+            let totalDPS = group.reduce((sum, r) => sum + r.getEffectiveDPS(group.length, supplyBonusFromAhead, isOnRoad, isMapped), 0);
 
             if (group.length > 1) {
                 entities.push({ type: "caravan", zone: Math.floor((leader.globalLevel - 1) / LEVELS_PER_ZONE) + 1, level: leader.levelInZone, wave: leader.wave, hp: leader.barrierHealth, dps: totalDPS, members: group, globalLevel: leader.globalLevel });
