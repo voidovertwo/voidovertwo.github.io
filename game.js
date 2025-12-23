@@ -473,7 +473,7 @@ class MapSegment {
         }
     }
 
-    render(runnersOnThisSegment = [], conqueredZones = [], maxStepExplored = -1, globalTileOffset = 0, mapPieces = {}, activeHideouts = new Set(), npcs = []) {
+    render(runnersOnThisSegment = [], conqueredZones = [], maxStepExplored = -1, globalTileOffset = 0, mapPieces = {}, activeHideouts = new Set(), npcs = [], pendingRoads = new Set()) {
         let html = '';
 
         runnersOnThisSegment.sort((a, b) => {
@@ -546,9 +546,24 @@ class MapSegment {
                         }
 
                         if (mapPosCounts[key]) {
-                            displayChar = mapPosCounts[key][0].getEmoji();
+                            // Check fighting hideout
+                            let fighting = false;
+                            if (activeHideouts.has(zoneIndex) && tileInZone === 9) {
+                                // Check if any runner is at Level 100 (globalLevel % 100 == 0)
+                                if (mapPosCounts[key].some(r => r.globalLevel % 100 === 0)) fighting = true;
+                            }
+
+                            if (fighting) {
+                                displayChar = "⚔️";
+                            } else {
+                                displayChar = mapPosCounts[key][0].getEmoji();
+                            }
                         } else if (conqueredZones.includes(zoneIndex) || isConstructed) {
                             displayChar = "⬛";
+                        } else if (tileInZone === 9 && piecesForThisTile >= 10 && activeHideouts.has(zoneIndex)) {
+                             displayChar = "🏰";
+                        } else if (tileInZone === 9 && piecesForThisTile >= 10 && pendingRoads.has(zoneIndex)) {
+                             displayChar = "🏚️";
                         } else {
                              if (piecesForThisTile >= 10) {
                                  displayChar = "🟫";
@@ -557,10 +572,6 @@ class MapSegment {
                              } else {
                                  displayChar = this.environment[0];
                              }
-                        }
-
-                        if (activeHideouts.has(zoneIndex) && tileInZone === 9 && piecesForThisTile >= 10) {
-                            if (!mapPosCounts[key]) displayChar = "⛺";
                         }
 
                     } else {
@@ -1754,7 +1765,7 @@ class GameState {
 
             const div = document.createElement('div');
             div.className = 'map-segment';
-            div.innerHTML = seg.render(segRunners, this.conqueredZones, exploredStep, currentGlobalTileOffset, this.mapPieces, this.activeHideouts, npcs);
+            div.innerHTML = seg.render(segRunners, this.conqueredZones, exploredStep, currentGlobalTileOffset, this.mapPieces, this.activeHideouts, npcs, this.pendingRoads);
             container.appendChild(div);
             currentGlobalTileOffset += seg.pathCoordinates.length;
         }
