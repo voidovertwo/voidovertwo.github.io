@@ -335,7 +335,7 @@ class Runner {
             if (this.fragments[type] >= cost) {
                 this.fragments[type] -= cost;
                 this.relics[type]++;
-                game.log(`${this.name} upgraded ${type} to Tier ${this.relics[type]}!`);
+                game.log(`🛠 ${this.name} upgraded ${type} to Tier ${this.relics[type]}!`);
             } else {
                 break;
             }
@@ -964,6 +964,22 @@ class GameState {
                              if (!r.isNPC) this.awardZP(r, ZP_REWARD_MAP_PIECE);
                              delete this.mapPieceBoosts[boostKey];
 
+                             // Check Map Set Full
+                             let setIdx = Math.floor(pieceIdx / 10);
+                             let setStart = setIdx * 10;
+                             let setEnd = setStart + 10;
+                             let isSetComplete = true;
+                             for (let i = setStart; i < setEnd; i++) {
+                                 if (!this.mapPieces[z][i]) {
+                                     isSetComplete = false;
+                                     break;
+                                 }
+                             }
+                             if (isSetComplete) {
+                                 let setLabel = (setIdx + 1) === 10 ? "SX" : `S${setIdx+1}`;
+                                 this.log(`🗺 Map for Z${z+1}|${setLabel} finished`);
+                             }
+
                              // Check Full
                              if (this.mapPieces[z].every(Boolean)) {
                                  if (!this.conqueredZones.includes(z) && !this.activeHideouts.has(z) && !this.zonesReadyForHideout.has(z) && !this.pendingRoads.has(z)) {
@@ -1144,14 +1160,14 @@ class GameState {
     awardFragment(runner, type = null, checkScoop = false) {
         if (!type) type = RELIC_TYPES[Math.floor(Math.random() * RELIC_TYPES.length)];
         runner.fragmentsCollected[type]++;
-        this.log(`${runner.name} found ${type} fragment`);
+        this.log(`🔍 ${runner.name} found ${type} fragment`);
 
         if (checkScoop) {
             const scoopTier = runner.relicsSnapshot["SCOOP"] || 0;
             if (Math.random() < (scoopTier * 0.025)) {
                  let bonusType = RELIC_TYPES[Math.floor(Math.random() * RELIC_TYPES.length)];
                  runner.fragmentsCollected[bonusType]++;
-                 this.log(`${runner.name} SCOOPED extra ${bonusType} fragment!`);
+                 this.log(`🤏 ${runner.name} SCOOPED ${bonusType} fragment!`);
             }
         }
     }
@@ -1198,7 +1214,7 @@ class GameState {
 
     warpRunner(runner) {
         let totalFragments = Object.values(runner.fragmentsCollected).reduce((a, b) => a + b, 0);
-        this.log(`🌀 ${runner.name} warped! Collected +${runner.zpCollected} ZP and +${totalFragments} fragment(s)`);
+        this.log(`🌀 ${runner.name} warped! +${runner.zpCollected} ZP and +${totalFragments} frag(s)`);
 
         // Count for squad level
         this.totalWarps++;
@@ -1217,21 +1233,32 @@ class GameState {
     sendRunner(runner) {
         if (runner.state === "READY") {
             runner.startRun();
-            this.log(`🚀 ${runner.name} sent to Zone 1`);
+            this.log(`${runner.getEmoji()}💨 ${runner.name} sent to the Zones!`);
             this.save();
         }
     }
 
     sendAllRunners() {
-        let sentCount = 0;
+        let sentRunners = [];
         this.runners.forEach(r => {
             if (r.state === "READY") {
                 r.startRun();
-                sentCount++;
+                sentRunners.push(r);
             }
         });
+
+        let sentCount = sentRunners.length;
         if (sentCount > 0) {
-            this.log(`🚀 ${sentCount} Runner${sentCount > 1 ? 's' : ''} sent to Zone 1`);
+            sentRunners.sort((a, b) => {
+                let sA = a.relicsSnapshot["STYLE"] || 0;
+                let sB = b.relicsSnapshot["STYLE"] || 0;
+                return sB - sA;
+            });
+
+            let topRunners = sentRunners.slice(0, 3);
+            let emojis = topRunners.map(r => r.getEmoji()).join("");
+
+            this.log(`${emojis}💨 ${sentCount} Runner${sentCount > 1 ? 's' : ''} sent to the Zones`);
             this.save();
         }
     }
@@ -1281,7 +1308,6 @@ class GameState {
                 for (let i = 0; i < slots && i < queued.length; i++) {
                     const r = queued[i];
                     r.state = "UPGRADING";
-                    this.log(`${r.name} started upgrading (Queue Position: ${i+1})`);
                 }
             }
         }
