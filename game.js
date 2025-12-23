@@ -343,7 +343,7 @@ class Runner {
     }
 
     getEffectiveDPS(caravanSize, supplyBonusMultiplier, highestReachedZone, mapCompleted) {
-        if (this.isNPC) return 999999999;
+        if (this.isNPC) return this.dps;
 
         let eff = this.dps; // Uses snapshot DPS
         const relics = this.relicsSnapshot;
@@ -1269,6 +1269,17 @@ class GameState {
         let name = NPC_NAME;
         let runner = new Runner(id, name, true);
         runner.targetZone = targetZoneIndex;
+
+        // Calculate DPS: 2x Target Zone Boss Health
+        let z = targetZoneIndex;
+        let base = DEFAULT_BARRIER_HEALTH;
+        let zoneFactor = Math.pow(Math.max(1, z + 1), 1.5);
+        let levelFactor = Math.pow(100, 1.2); // Level 100
+        let health = base * zoneFactor * levelFactor * 1.1; // 1.1 multiplier from calc func
+        let bossHealth = Math.floor(health * ZONE_BOSS_HEALTH_MULTIPLIER);
+
+        runner.baseDPS = bossHealth * 2;
+
         runner.startRun();
         this.runners.push(runner);
         this.log(`🚧 NPC Team deployed for Zone ${targetZoneIndex+1}`);
@@ -1587,6 +1598,16 @@ class GameState {
             let estTime = this.calculateLevelCompletionTime(entity, maxWaves);
             let hpFormatted = formatLargeNumber(Math.max(0, entity.hp));
             let dpsFormatted = formatLargeNumber(entity.dps);
+
+            // NPC DPS display override
+            let isNPC = false;
+            if (entity.type === "caravan") {
+                 if (entity.members[0].isNPC) isNPC = true;
+            } else {
+                 if (entity.runner.isNPC) isNPC = true;
+            }
+            if (isNPC) dpsFormatted = "∞";
+
             let barrierType = "";
             if (entity.wave === maxWaves) {
                 if (entity.level === LEVELS_PER_ZONE) {
