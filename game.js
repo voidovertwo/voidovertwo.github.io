@@ -1080,7 +1080,8 @@ class GameState {
 
                     if (hideoutCleared) {
                         // Hideout Bundle: 1 of each, NO SCOOP
-                        RELIC_TYPES.forEach(t => this.awardFragment(r, t, false));
+                        RELIC_TYPES.forEach(t => r.fragmentsCollected[t]++);
+                        this.log(`🔍 ${r.name} found 1 fragment of each`);
                     } else {
                         // Normal Zone Boss: 1 Guaranteed, NO SCOOP
                         this.awardFragment(r, null, false);
