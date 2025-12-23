@@ -12,11 +12,11 @@ const ZONE_BOSS_HEALTH_MULTIPLIER = 250;
 const HIDEOUT_BOSS_MULTIPLIER = 1000;
 
 const RUNNER_NAMES = [
-    "Bolt", "Scabs", "Hex", "Kronk", "Vile", "Rook", "Fume", "Scar", "Jolt", "Pike",
-    "Spanner", "Cram", "Blight", "Wasp", "Vash", "Scamp", "Dreg", "Mute", "Skull", "Tophat",
-    "Choke", "Flux", "Zero", "Nail", "Creep", "Vantage", "Shard", "Grime", "Cloud", "Tusk",
-    "Rattle", "Tank", "Fangs", "Grave", "Zonos", "Silt", "Bruise", "Void", "Plume", "Crook",
-    "Fray", "Brawler", "Scorch", "Mangle", "Ultra", "Stump", "Cinder", "Wretch", "Spooky", "Omen"
+    "Bolt", "Scabs", "Hex", "Knave", "Vile", "Rook", "Fume", "Scar", "Jolt", "Pike",
+    "Spanner", "Poison", "Blight", "Wasp", "Vash", "Scamp", "Dreg", "Mute", "Skull", "Tophat",
+    "Chains", "Flux", "Zero", "Nail", "Creep", "Vantage", "Shard", "Grime", "Cloud", "Tusk",
+    "Rattler", "Tank", "Fangs", "Grave", "Zonos", "Salt", "Brain", "Void", "Plume", "Crook",
+    "Ghost", "Borked", "Scorch", "Mangle", "Ultra", "Stump", "Cinder", "Wretch", "Spooky", "Omen"
 ];
 const NPC_NAME = "Nester's Primo Construction";
 
@@ -31,7 +31,7 @@ const ZP_REWARD_MAP_PIECE = 1;
 const MAP_COMPLETED_BONUS_DPS = 5;
 const ZONE_COMPLETED_BONUS_DPS = 50;
 
-const MAP_PIECE_BASE_CHANCE = 0.01;
+const MAP_PIECE_BASE_CHANCE = 0.05;
 const RELIC_FRAGMENT_CHANCE = 0.1;
 
 // Relic Configuration
