@@ -329,35 +329,58 @@ class Runner {
     processUpgrades(dt) { // dt in seconds
         if (this.state !== "UPGRADING") return;
 
-        if (!this.currentUpgrade) {
-            if (this.upgradeQueue.length > 0) {
-                this.currentUpgrade = this.upgradeQueue.shift();
-            } else {
-                this.state = "READY";
-                return;
+        let timeAvailable = dt;
+
+        while (timeAvailable > 0 || !this.currentUpgrade) {
+            // 1. Pick up task if needed
+            if (!this.currentUpgrade) {
+                if (this.upgradeQueue.length > 0) {
+                    this.currentUpgrade = this.upgradeQueue.shift();
+                } else {
+                    this.state = "READY";
+                    return;
+                }
             }
-        }
 
-        const task = this.currentUpgrade;
-        const amount = Math.min(task.remaining, task.rate * dt);
+            // 2. Process current task
+            const task = this.currentUpgrade;
+            // Calculate time needed to finish this task: remaining / rate
+            const timeToFinish = task.remaining / task.rate;
 
-        task.remaining -= amount;
+            const timeToSpend = Math.min(timeAvailable, timeToFinish);
+            const amount = timeToSpend * task.rate;
 
-        if (task.type === 'DPS') {
-            this.baseDPS += amount;
-        } else if (task.type === 'RELIC') {
-            // Simulate gathering fragments, then apply
-            this.fragments[task.relicType] += amount;
-            this.checkRelicLevelUp(task.relicType);
-        } else if (task.type === 'FINALIZING') {
-            // No-op, just consumes time
-        }
+            task.remaining -= amount;
+            timeAvailable -= timeToSpend;
 
-        if (task.remaining <= 0) {
-            this.currentUpgrade = null;
-            // Check for completion immediately to avoid 1-tick delay
-            if (this.upgradeQueue.length === 0) {
-                this.state = "READY";
+            if (task.type === 'DPS') {
+                this.baseDPS += amount;
+            } else if (task.type === 'RELIC') {
+                this.fragments[task.relicType] += amount;
+                this.checkRelicLevelUp(task.relicType);
+            } else if (task.type === 'FINALIZING') {
+                // No-op
+            }
+
+            // 3. Task Completion
+            if (task.remaining <= 0.000001) { // Float safety
+                task.remaining = 0; // Ensure clean 0
+                this.currentUpgrade = null;
+
+                // If queue is empty, we are done
+                if (this.upgradeQueue.length === 0) {
+                    this.state = "READY";
+                    return;
+                }
+                // Loop continues to pick up next task immediately (even if timeAvailable is 0)
+                // This ensures currentUpgrade is populated for the UI
+                if (timeAvailable <= 0) {
+                    // Force one more iteration to load the next task, then break
+                    // Actually, the while loop condition `!this.currentUpgrade` handles this!
+                }
+            } else {
+                // Task not done, so we must be out of time
+                break;
             }
         }
     }
