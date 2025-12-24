@@ -1562,7 +1562,8 @@ class GameState {
                 if (!a.isNPC && b.isNPC) return 1;
                 let sA = a.relicsSnapshot["STYLE"] || 0;
                 let sB = b.relicsSnapshot["STYLE"] || 0;
-                return sB - sA;
+                if (sA !== sB) return sB - sA;
+                return b.dps - a.dps;
             });
 
             let leader = group[0];
