@@ -988,7 +988,7 @@ class GameState {
                              }
                              if (isSetComplete) {
                                  let setLabel = (setIdx + 1) === 10 ? "SX" : `S${setIdx+1}`;
-                                 this.log(`🗺 Map for Z${z+1}|${setLabel} finished`);
+                                 this.log(`📜 Map for Z${z+1}|${setLabel} finished`);
                              }
 
                              // Check Full
