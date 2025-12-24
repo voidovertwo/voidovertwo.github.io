@@ -335,7 +335,7 @@ class Runner {
             if (this.fragments[type] >= cost) {
                 this.fragments[type] -= cost;
                 this.relics[type]++;
-                game.log(`🛠 ${this.name} upgraded ${type} to Tier ${this.relics[type]}!`);
+                game.log(`🔨 ${this.name} upgraded ${type} to Tier ${this.relics[type]}!`);
             } else {
                 break;
             }
