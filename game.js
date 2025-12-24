@@ -393,9 +393,14 @@ class Runner {
              tier = this.relics["STYLE"] || 0;
         }
 
-        let t = Math.floor(tier / 2) * 2;
-        if (t > 20) t = 20;
-        return STYLE_EMOJIS[t] || "🛺";
+        let best = 0;
+        for (let key in STYLE_EMOJIS) {
+            let k = parseInt(key);
+            if (k <= tier && k > best) {
+                best = k;
+            }
+        }
+        return STYLE_EMOJIS[best] || "🛵";
     }
 }
 
