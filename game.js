@@ -1392,10 +1392,20 @@ class GameState {
                  return a.baseDPS - b.baseDPS;
              }
              if (a.state === "RUNNING") {
-                 // Closest to durability cap (Percentage filled)
-                 let pA = a.durability / a.getCap();
-                 let pB = b.durability / b.getCap();
-                 return pB - pA;
+                 // 1. Highest Global Level
+                 if (a.globalLevel !== b.globalLevel) {
+                     return b.globalLevel - a.globalLevel;
+                 }
+
+                 // 2. Highest Style Tier (using snapshot)
+                 let styleA = a.relicsSnapshot["STYLE"] || 0;
+                 let styleB = b.relicsSnapshot["STYLE"] || 0;
+                 if (styleA !== styleB) {
+                     return styleB - styleA;
+                 }
+
+                 // 3. Highest Current DPS
+                 return b.dps - a.dps;
              }
              return 0;
         });
