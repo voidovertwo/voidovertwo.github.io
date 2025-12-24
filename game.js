@@ -138,6 +138,7 @@ class Runner {
         this.upgradeQueue = [];
         this.currentUpgrade = null;
         this.warpTimestamp = 0;
+        this.totalUpgradeTime = 0;
     }
 
     startRun() {
@@ -264,6 +265,20 @@ class Runner {
 
         if (this.upgradeQueue.length === 0) {
             this.state = "READY";
+        } else {
+            // Add Finalizing Step
+            // Total > 1 to ensure it spans at least one frame (1s tick) and is visible
+            this.upgradeQueue.push({
+                type: 'FINALIZING',
+                total: 1.1,
+                remaining: 1.1,
+                rate: 1
+            });
+
+            // Calculate Total Time
+            this.totalUpgradeTime = this.upgradeQueue.reduce((acc, task) => {
+                return acc + (task.total / task.rate);
+            }, 0);
         }
     }
 
@@ -295,6 +310,20 @@ class Runner {
                 });
             }
         }
+
+        // Add Finalizing Step
+        // Total > 1 to ensure it spans at least one frame (1s tick) and is visible
+        this.upgradeQueue.push({
+            type: 'FINALIZING',
+            total: 1.1,
+            remaining: 1.1,
+            rate: 1
+        });
+
+        // Calculate Total Time
+        this.totalUpgradeTime = this.upgradeQueue.reduce((acc, task) => {
+            return acc + (task.total / task.rate);
+        }, 0);
     }
 
     processUpgrades(dt) { // dt in seconds
@@ -320,10 +349,16 @@ class Runner {
             // Simulate gathering fragments, then apply
             this.fragments[task.relicType] += amount;
             this.checkRelicLevelUp(task.relicType);
+        } else if (task.type === 'FINALIZING') {
+            // No-op, just consumes time
         }
 
         if (task.remaining <= 0) {
             this.currentUpgrade = null;
+            // Check for completion immediately to avoid 1-tick delay
+            if (this.upgradeQueue.length === 0) {
+                this.state = "READY";
+            }
         }
     }
 
@@ -1486,8 +1521,20 @@ class GameState {
             if (isUpgrading) {
                 let current = r.currentUpgrade;
                 if (current) {
-                    let pct = 100 - (current.remaining / current.total * 100);
-                    let label = current.type === 'DPS' ? "Upgrading DPS" : "Upgrading Relics";
+                    // Calculate Total Remaining Time
+                    let currentRemaining = current.remaining / current.rate;
+                    let queueRemaining = r.upgradeQueue.reduce((acc, t) => acc + (t.total / t.rate), 0);
+                    let totalRemaining = currentRemaining + queueRemaining;
+
+                    let pct = 0;
+                    if (r.totalUpgradeTime > 0) {
+                        pct = 100 * (1 - (totalRemaining / r.totalUpgradeTime));
+                    }
+                    pct = Math.max(0, Math.min(100, pct)); // Clamp
+
+                    let label = "Finalizing...";
+                    if (current.type === 'DPS') label = "Upgrading DPS";
+                    else if (current.type === 'RELIC') label = "Upgrading Relics";
 
                     upgradeHtml = `
                         <div class="upgrade-progress-container">
@@ -1495,8 +1542,6 @@ class GameState {
                         </div>
                         <div class="upgrade-text">${label}</div>
                     `;
-                } else {
-                     upgradeHtml = `<div class="upgrade-text">Finalizing...</div>`;
                 }
             } else if (isQueued) {
                  upgradeHtml = `<div class="upgrade-text" style="color:#bbb; margin-top:8px;">Waiting in queue...</div>`;
