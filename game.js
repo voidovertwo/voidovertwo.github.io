@@ -1697,7 +1697,7 @@ class GameState {
         description.textContent = descText;
         embed.appendChild(description);
 
-        entities.slice(0, 20).forEach(entity => {
+        entities.forEach(entity => {
             const field = document.createElement('div');
             field.className = 'tracker-field';
             let maxWaves = this.getWavesForLevel(entity.globalLevel);
