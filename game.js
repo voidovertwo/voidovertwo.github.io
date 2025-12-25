@@ -882,12 +882,13 @@ class GameState {
         // 2. Manage Runner Unlocks
         const max = this.getMaxRunners();
         // Ensure we have 'max' runners instantiated or appearing
-        if (this.runners.length < max) {
+        const playerRunners = this.runners.filter(r => !r.isNPC);
+        if (playerRunners.length < max) {
             // Check if last runner is ready/running
-            const last = this.runners[this.runners.length - 1];
+            const last = playerRunners[playerRunners.length - 1];
             if (last && (last.state === "READY" || last.state === "RUNNING")) {
                 // Spawn next
-                let id = this.runners.length;
+                let id = playerRunners.length;
                 let name = this.getUniqueRunnerName();
                 let newRunner = new Runner(id, name);
 
