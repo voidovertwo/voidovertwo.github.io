@@ -22,6 +22,7 @@ const NPC_NAME = "Nester's Primo Construction";
 
 // Game Balance Constants
 const INITIAL_RUNNER_COUNT = 5;
+const MAX_ROAD_BONUS_ZONES = 25;
 const RUNNER_STARTING_DPS = 100;
 const DPS_GAIN_PER_LEVEL_BASE = 0.5;
 
@@ -861,8 +862,12 @@ class GameState {
         }
     }
 
+    getRoadBonusRunnerCount() {
+        return this.conqueredZones.filter(z => z < MAX_ROAD_BONUS_ZONES).length;
+    }
+
     getMaxRunners() {
-        return INITIAL_RUNNER_COUNT + this.squadLevel;
+        return INITIAL_RUNNER_COUNT + this.squadLevel + this.getRoadBonusRunnerCount();
     }
 
     getNextLevelThreshold() {
@@ -1425,7 +1430,12 @@ class GameState {
         let remaining = Math.max(0, required - this.totalWarps);
         let warpsText = (this.squadLevel >= 20) ? "Max Level" : `Warps: ${remaining}`;
 
-        document.getElementById('squad-level-display').innerHTML = `Squad Level ${this.squadLevel} <span style="font-size:0.7em; margin-left:10px; color:#aaa;">(${warpsText})</span>`;
+        let base = INITIAL_RUNNER_COUNT;
+        let squad = this.squadLevel;
+        let road = this.getRoadBonusRunnerCount();
+        let max = this.getMaxRunners();
+
+        document.getElementById('squad-level-display').innerHTML = `Squad Level ${this.squadLevel} <span style="font-size:0.7em; margin-left:10px; color:#aaa;">(${warpsText})</span><div style="font-size:0.6em; color:#888; margin-top:2px;">Max Runners: ${max} (${base} Base + ${squad} Squad + ${road} Roads)</div>`;
         document.getElementById('squad-counts').textContent = `Ready: ${readyCount} | Upgrading: ${upgradingCount} | On Run: ${runningCount}`;
 
         // Sort:
