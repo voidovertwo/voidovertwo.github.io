@@ -941,6 +941,28 @@ class GameState {
                 });
 
                 let leader = group[0];
+
+                // Sync group to the BEST progress (Highest Wave, then Lowest HP)
+                // This prevents progress loss if a "stronger" runner (who becomes leader) joins but is behind in waves
+                let bestWave = -1;
+                let minHpAtBestWave = Infinity;
+
+                group.forEach(r => {
+                    if (r.wave > bestWave) {
+                        bestWave = r.wave;
+                        minHpAtBestWave = r.barrierHealth;
+                    } else if (r.wave === bestWave) {
+                        if (r.barrierHealth < minHpAtBestWave) {
+                            minHpAtBestWave = r.barrierHealth;
+                        }
+                    }
+                });
+
+                if (bestWave !== -1 && minHpAtBestWave !== Infinity) {
+                    leader.wave = bestWave;
+                    leader.barrierHealth = minHpAtBestWave;
+                }
+
                 let currentZone = Math.floor((leader.globalLevel - 1) / LEVELS_PER_ZONE);
 
                 let isOnRoad = this.conqueredZones.includes(currentZone);
