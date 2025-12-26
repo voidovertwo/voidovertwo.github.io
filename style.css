@@ -550,11 +550,11 @@ h2 {
 }
 
 .map-ui-header {
-    padding: 4px 6px;
+    padding: 6px 8px;
     background: #2a2a2a;
     color: var(--accent-color);
     font-weight: bold;
-    font-size: 0.75rem;
+    font-size: 0.85rem;
     cursor: pointer;
     display: flex;
     justify-content: space-between;
@@ -594,7 +594,7 @@ h2 {
     grid-template-columns: repeat(5, 1fr);
     gap: 4px;
     font-family: monospace;
-    font-size: 0.65rem;
+    font-size: 0.72rem;
 }
 
 .map-overall-stats {
