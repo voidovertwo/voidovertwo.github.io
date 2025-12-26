@@ -1613,7 +1613,7 @@ class GameState {
             let icon = r.getEmoji();
             if (r.state === "RUNNING") statusText = "ON RUN";
             if (r.state === "UPGRADING") icon = "🔧";
-            if (r.state === "QUEUED") icon = "🔧";
+            if (r.state === "QUEUED") icon = "⏲️";
 
             card.innerHTML = `
                 <div class="runner-header">
@@ -1643,8 +1643,9 @@ class GameState {
         const container = document.getElementById('tracker-list');
         container.innerHTML = '';
         const activeRunners = this.runners.filter(r => r.state === "RUNNING" || r.isNPC);
+        const oasisRunners = this.runners.filter(r => !r.isNPC && (r.state === "READY" || r.state === "UPGRADING" || r.state === "QUEUED"));
 
-        if (activeRunners.length === 0) {
+        if (activeRunners.length === 0 && oasisRunners.length === 0) {
              const embed = document.createElement('div');
              embed.className = 'tracker-embed';
              embed.innerHTML = `<div class="tracker-embed-header">🏁 THE TRACKER 🏁</div><div class="tracker-embed-description">No runners currently active.</div>`;
@@ -1714,7 +1715,8 @@ class GameState {
 
         let runnersCount = activeRunners.filter(r => !r.isNPC).length;
         let npcCount = activeRunners.filter(r => r.isNPC).length;
-        let descText = `Runners: ${runnersCount}`;
+        let oasisCount = oasisRunners.length;
+        let descText = `Oasis: ${oasisCount} | Runners: ${runnersCount}`;
         if (npcCount > 0) descText += ` | NPCs: ${npcCount}`;
 
         description.textContent = descText;
@@ -1762,6 +1764,58 @@ class GameState {
             }
             embed.appendChild(field);
         });
+
+        // The Oasis Display
+        if (oasisRunners.length > 0) {
+            // Sort Oasis Runners
+            oasisRunners.sort((a, b) => {
+                 const priorities = { "READY": 0, "UPGRADING": 1, "QUEUED": 2 };
+                 let pA = priorities[a.state];
+                 let pB = priorities[b.state];
+                 if (pA !== pB) return pA - pB;
+
+                 if (a.state === "READY") {
+                     return b.baseDPS - a.baseDPS;
+                 }
+                 if (a.state === "UPGRADING") {
+                     let remA = (a.currentUpgrade ? a.currentUpgrade.remaining : 0) + a.upgradeQueue.reduce((s,t) => s + t.remaining, 0);
+                     let remB = (b.currentUpgrade ? b.currentUpgrade.remaining : 0) + b.upgradeQueue.reduce((s,t) => s + t.remaining, 0);
+                     return remA - remB;
+                 }
+                 if (a.state === "QUEUED") {
+                     if (a.warpTimestamp !== b.warpTimestamp) return a.warpTimestamp - b.warpTimestamp;
+                     return a.baseDPS - b.baseDPS;
+                 }
+                 return 0;
+            });
+
+            // Calculate Est Time for Upgrading
+            let estText = "no runners upgrading";
+            let upgrading = oasisRunners.filter(r => r.state === "UPGRADING");
+            if (upgrading.length > 0) {
+                // Sorted first one is soonest due to sort logic above (remA - remB)
+                let soonest = upgrading[0];
+                let rem = (soonest.currentUpgrade ? soonest.currentUpgrade.remaining / soonest.currentUpgrade.rate : 0) +
+                          soonest.upgradeQueue.reduce((s,t) => s + (t.total / t.rate), 0);
+                estText = this.formatTime(Math.ceil(rem));
+            }
+
+            // Generate Member String
+            let memberEmojis = oasisRunners.map(r => {
+                let icon = r.getEmoji();
+                if (r.state === "UPGRADING") icon = "🔧";
+                if (r.state === "QUEUED") icon = "⏲️";
+                return `${icon} ${r.name}`;
+            }).join(" ");
+
+            const field = document.createElement('div');
+            field.className = 'tracker-field';
+            field.innerHTML = `<div class="tracker-field-name">The Oasis (${oasisRunners.length} members)</div>
+                <div class="tracker-field-value">Z: 1 | L: 0 | Est: ${estText}</div>
+                <div class="tracker-field-value">${memberEmojis}</div>`;
+            embed.appendChild(field);
+        }
+
         container.appendChild(embed);
     }
 
