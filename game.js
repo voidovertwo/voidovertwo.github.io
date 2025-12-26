@@ -1178,7 +1178,12 @@ class GameState {
 
                 // 4. Zone Completion (Level 100)
                 if (completedLevel % 100 === 0) {
-                    this.awardZP(r, ZP_REWARD_100_LEVELS);
+                    if (hideoutCleared) {
+                        let z = Math.floor((completedLevel - 1) / LEVELS_PER_ZONE);
+                        this.awardZP(r, 10 * (z + 1));
+                    } else {
+                        this.awardZP(r, ZP_REWARD_100_LEVELS);
+                    }
 
                     if (hideoutCleared) {
                         // Hideout Bundle: 1 of each, NO SCOOP
