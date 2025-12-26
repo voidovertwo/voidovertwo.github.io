@@ -533,8 +533,8 @@ h2 {
     display: flex;
     flex-direction: column;
     justify-content: flex-end; /* Align items to the bottom */
-    gap: 5px;
-    padding: 10px;
+    gap: 2px;
+    padding: 4px;
     background: var(--bg-color); /* Match column background or distinct? */
     border-top: 1px solid var(--border-color);
     flex-shrink: 0; /* Don't shrink */
@@ -550,11 +550,11 @@ h2 {
 }
 
 .map-ui-header {
-    padding: 8px 10px;
+    padding: 4px 6px;
     background: #2a2a2a;
     color: var(--accent-color);
     font-weight: bold;
-    font-size: 0.9rem;
+    font-size: 0.75rem;
     cursor: pointer;
     display: flex;
     justify-content: space-between;
@@ -573,7 +573,7 @@ h2 {
 }
 
 .map-ui-body {
-    padding: 10px;
+    padding: 4px;
     font-size: 0.85rem;
     color: #ccc;
     display: block;
@@ -594,7 +594,7 @@ h2 {
     grid-template-columns: repeat(5, 1fr);
     gap: 4px;
     font-family: monospace;
-    font-size: 0.8rem;
+    font-size: 0.65rem;
 }
 
 .map-overall-stats {

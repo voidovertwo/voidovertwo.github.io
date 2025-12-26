@@ -2065,8 +2065,10 @@ class GameState {
         const data = {
             squadLevel: this.squadLevel,
             totalWarps: this.totalWarps,
-            runners: this.runners.filter(r=>!r.isNPC).map(r => ({
+            runners: this.runners.map(r => ({
                 id: r.id, name: r.name,
+                isNPC: r.isNPC,
+                targetZone: r.targetZone,
                 baseDPS: r.baseDPS,
                 relics: r.relics,
                 fragments: r.fragments,
@@ -2128,7 +2130,8 @@ class GameState {
 
                 if (data.runners) {
                     this.runners = data.runners.map(d => {
-                        let r = new Runner(d.id, d.name, false);
+                        let r = new Runner(d.id, d.name, d.isNPC || false);
+                        r.targetZone = d.targetZone !== undefined ? d.targetZone : -1;
                         r.baseDPS = d.baseDPS || RUNNER_STARTING_DPS;
                         r.relics = d.relics || r.relics;
                         r.fragments = d.fragments || r.fragments;
