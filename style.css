@@ -366,16 +366,13 @@ h2 {
 }
 
 #map-progress-container {
-    padding: 0.5rem;
-    background-color: #202020;
-    border-top: 1px solid var(--border-color);
-    font-size: 0.8rem;
-    color: #bbb;
-    font-family: monospace;
-    height: 300px; /* Rigid height as requested */
+    background-color: transparent;
+    border-top: none;
+    height: auto;
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
+    padding: 0;
 }
 
 #map-zones-list {
