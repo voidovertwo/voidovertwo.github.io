@@ -598,9 +598,9 @@ h2 {
 }
 
 .map-overall-stats {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
 }
 
 .map-overall-row {

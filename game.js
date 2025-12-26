@@ -1972,11 +1972,12 @@ class GameState {
             <div class="map-ui-body">
                  <div class="map-overall-stats">
                     <div class="map-overall-row">In Progress: ${inProgressMaps}</div>
-                    <div class="map-overall-row">Maps: ${completedMaps} (+${completedMapsDPS} DPS)</div>
-                    <div class="map-overall-row">Zones: ${completedZonesCount} (+${completedZonesDPS} DPS)</div>
-                    <div class="map-overall-row"></div>
+                    <div class="map-overall-row" style="display:flex; justify-content:space-between; gap:10px;">
+                        <div>Maps: ${completedMaps} (+${completedMapsDPS} DPS)</div>
+                        <div>Zones: ${completedZonesCount} (+${completedZonesDPS} DPS)</div>
+                    </div>
                  </div>
-                 <div style="margin-top:5px; border-top:1px solid #333; padding-top:5px;">
+                 <div style="margin-top:5px; border-top:1px solid #333; padding-top:5px; display:flex; justify-content:space-between; gap:10px;">
                     <div>Conquered: ${formatRange(conqueredList)}</div>
                     <div>Roads: ${formatRange(roadList)}</div>
                  </div>
