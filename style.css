@@ -530,3 +530,89 @@ h2 {
     border: 1px solid #4CAF50;
     box-shadow: 0 0 4px rgba(76, 175, 80, 0.5);
 }
+
+/* Map UI Stack (New System) */
+#map-ui-stack {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end; /* Align items to the bottom */
+    gap: 5px;
+    padding: 10px;
+    background: var(--bg-color); /* Match column background or distinct? */
+    border-top: 1px solid var(--border-color);
+    flex-shrink: 0; /* Don't shrink */
+}
+
+.map-ui-card {
+    background: var(--module-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    overflow: hidden;
+    width: 100%;
+    transition: all 0.2s ease;
+}
+
+.map-ui-header {
+    padding: 8px 10px;
+    background: #2a2a2a;
+    color: var(--accent-color);
+    font-weight: bold;
+    font-size: 0.9rem;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    user-select: none;
+    border-bottom: 1px solid transparent; /* Hidden by default */
+}
+
+.map-ui-header:hover {
+    background: #333;
+}
+
+/* Expanded State styles */
+.map-ui-card:not(.collapsed) .map-ui-header {
+    border-bottom-color: #333;
+}
+
+.map-ui-body {
+    padding: 10px;
+    font-size: 0.85rem;
+    color: #ccc;
+    display: block;
+}
+
+/* Collapsed State */
+.map-ui-card.collapsed .map-ui-body {
+    display: none;
+}
+
+.map-ui-card.collapsed {
+    /* Optional: visual cue for collapsed state */
+}
+
+/* Specific content styling within bodies */
+.map-progress-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 4px;
+    font-family: monospace;
+    font-size: 0.8rem;
+}
+
+.map-overall-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.map-overall-row {
+    margin-bottom: 4px;
+}
+
+/* Mobile Tweaks */
+@media (max-width: 768px) {
+    #map-ui-stack {
+        padding: 5px;
+    }
+}

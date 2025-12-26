@@ -682,6 +682,10 @@ class GameState {
         this.currentMobileTab = 1; // Default to Tracker (index 1)
         this.touchStartX = 0;
         this.touchEndX = 0;
+
+        // UI State
+        this.mapUIState = { overallCollapsed: false, zones: {} };
+        this.autoCollapsedZones = new Set();
     }
 
     getUniqueRunnerName() {
@@ -1828,56 +1832,98 @@ class GameState {
         const container = document.getElementById('map-progress-container');
         if (!container) return;
 
-        let zonesContainer = document.getElementById('map-zones-list');
-        let summaryContainer = document.getElementById('map-summary-fixed');
-
-        if (!zonesContainer) {
+        // Ensure new structure
+        let stack = document.getElementById('map-ui-stack');
+        if (!stack) {
             container.innerHTML = '';
-            zonesContainer = document.createElement('div');
-            zonesContainer.id = 'map-zones-list';
-            container.appendChild(zonesContainer);
-
-            summaryContainer = document.createElement('div');
-            summaryContainer.id = 'map-summary-fixed';
-            container.appendChild(summaryContainer);
+            stack = document.createElement('div');
+            stack.id = 'map-ui-stack';
+            container.appendChild(stack);
         }
 
-        zonesContainer.innerHTML = '';
-        summaryContainer.innerHTML = '';
+        stack.innerHTML = '';
 
+        // 1. Calculate Overall Stats
         let inProgressMaps = 0;
         let completedMaps = 0;
         let completedZonesCount = 0;
         let allZoneIndices = Object.keys(this.mapPieces).map(k => parseInt(k));
         let maxZone = Math.max(...allZoneIndices, this.highestReachedZone, 0);
 
+        // Identify Active Zones for individual display
+        let activeZones = [];
+
         for (let z = 0; z <= maxZone; z++) {
-             let pieces = this.mapPieces[z] || Array(100).fill(false);
-             let total = pieces.filter(Boolean).length;
-             if (total === 100) completedZonesCount++;
-             for(let t=0; t<10; t++) {
-                 let start = t * 10;
-                 let end = start + 10;
-                 let p = pieces.slice(start, end).filter(Boolean).length;
-                 if (p === 10) completedMaps++;
-                 else if (p > 0) inProgressMaps++;
-             }
-        }
-
-        for (let z = maxZone; z >= 0; z--) {
-            if (this.conqueredZones.includes(z)) continue;
-
             let pieces = this.mapPieces[z] || Array(100).fill(false);
             let total = pieces.filter(Boolean).length;
 
-            if (total === 0 && z < maxZone) { }
+            if (total === 100) completedZonesCount++;
+            for (let t = 0; t < 10; t++) {
+                let start = t * 10;
+                let end = start + 10;
+                let p = pieces.slice(start, end).filter(Boolean).length;
+                if (p === 10) completedMaps++;
+                else if (p > 0) inProgressMaps++;
+            }
 
-            let div = document.createElement('div');
-            div.className = 'map-progress-zone';
-            let status = "Mapping...";
-            if (total >= 100) status = "Mapped!";
+            // Determine if active for display
+            if (this.conqueredZones.includes(z)) continue; // Road built -> Remove
 
-            let html = `<div class="map-progress-header">Zone ${z+1} - ${status}</div><div class="map-progress-grid">`;
+            // Conditions for display:
+            // 1. Has pieces found (>0)
+            // 2. Hideout Active
+            // 3. Road Pending
+            // 4. Just ready for hideout (total == 100)
+            let isRelevant = (total > 0) || this.activeHideouts.has(z) || this.pendingRoads.has(z) || this.zonesReadyForHideout.has(z);
+
+            if (isRelevant) {
+                activeZones.push(z);
+            }
+        }
+
+        // Sort Active Zones Descending (Higher Zone Index at Top of HTML = Bottom of visual stack? No.)
+        // Requirement: "Individual ... containers should appear ... docked to the top of the Overall Map Progress container, and on each other"
+        // "stack upwards from there".
+        // HTML: Container (Flex Col). Last Element = Overall (Bottom). Elements before it = stacked on top.
+        // So HTML Order: [Zone 2, Zone 1, Overall]
+        // Flex Direction Column -> Zone 2 Top, Zone 1 Middle, Overall Bottom.
+        // Yes.
+        activeZones.sort((a, b) => b - a);
+
+        // 2. Render Zone Containers
+        activeZones.forEach(z => {
+            let pieces = this.mapPieces[z] || Array(100).fill(false);
+            let total = pieces.filter(Boolean).length;
+
+            let title = `Zone ${z + 1} - Mapping...`;
+
+            if (this.pendingRoads.has(z)) {
+                title = `Zone ${z + 1} - ROAD construction underway...`;
+            } else if (this.activeHideouts.has(z)) {
+                // Check if Fighting
+                let fighting = this.runners.some(r => !r.isNPC && r.globalLevel === ((z + 1) * 100));
+                if (fighting) {
+                    title = `Zone ${z + 1} - Fighting HIDEOUT...`;
+                } else {
+                    title = `Zone ${z + 1} - HIDEOUT FOUND!`;
+                }
+            } else if (total === 100) {
+                // "Finding HIDEOUT..." or "Fully Mapped"
+                title = `Zone ${z + 1} - Finding HIDEOUT...`;
+
+                // Auto-collapse logic
+                if (!this.autoCollapsedZones.has(z)) {
+                    this.mapUIState.zones[z] = true;
+                    this.autoCollapsedZones.add(z);
+                }
+            }
+
+            let collapsed = this.mapUIState.zones[z] || false;
+
+            let card = document.createElement('div');
+            card.className = `map-ui-card zone-card ${collapsed ? 'collapsed' : ''}`;
+
+            let gridHtml = '';
             for(let t=0; t<10; t++) {
                  let start = t * 10;
                  let end = start + 10;
@@ -1888,37 +1934,65 @@ class GameState {
                  if(p == 10) color = "#8B4513";
 
                  let label = (t + 1) === 10 ? "SX" : `S${t+1}`;
-                 html += `<div style="color:${color}">${label}: ${p}/10</div>`;
+                 gridHtml += `<div style="color:${color}">${label}: ${p}/10</div>`;
             }
-            html += `</div>`;
-            div.innerHTML = html;
-            zonesContainer.appendChild(div);
-        }
 
+            card.innerHTML = `
+                <div class="map-ui-header" onclick="game.toggleMapUIZone(${z})">
+                    <span>${title}</span>
+                    <span>${collapsed ? '+' : '-'}</span>
+                </div>
+                <div class="map-ui-body">
+                    <div class="map-progress-grid">
+                        ${gridHtml}
+                    </div>
+                </div>
+            `;
+            stack.appendChild(card);
+        });
+
+        // 3. Render Overall Progress (Fixed at Bottom)
         let conqueredIndices = new Set(this.conqueredZones);
         this.runners.forEach(r => {
             if (r.isNPC) conqueredIndices.add(r.targetZone);
         });
-
-        let conqueredList = Array.from(conqueredIndices).sort((a,b)=>a-b);
-        let roadList = [...this.conqueredZones].sort((a,b)=>a-b);
-
+        let conqueredList = Array.from(conqueredIndices).sort((a, b) => a - b);
+        let roadList = [...this.conqueredZones].sort((a, b) => a - b);
         let completedMapsDPS = completedMaps * 5;
         let completedZonesDPS = completedZonesCount * 50;
 
-        let summaryHtml = `
-            <div class="map-progress-zone" style="border-top: 2px solid #444; margin-top: 10px; padding-top: 10px; margin-bottom: 0;">
-                <div class="map-progress-header" style="text-align:center; color:#fff;">Overall Map Progress</div>
-                <div style="font-size: 0.9em; line-height: 1.4em;">
-                    <div>In Progress Maps: ${inProgressMaps}</div>
-                    <div>Completed Maps: ${completedMaps} (+${completedMapsDPS} DPS)</div>
-                    <div>Completed Zones: ${completedZonesCount} (+${completedZonesDPS} DPS)</div>
-                    <div>Conquered Zones: ${formatRange(conqueredList)}</div>
-                    <div>Constructed Roads: ${formatRange(roadList)}</div>
-                </div>
+        let overallCollapsed = this.mapUIState.overallCollapsed;
+        let overallCard = document.createElement('div');
+        overallCard.className = `map-ui-card overall-card ${overallCollapsed ? 'collapsed' : ''}`;
+        overallCard.innerHTML = `
+            <div class="map-ui-header" onclick="game.toggleMapUIOverall()">
+                <span>Overall Map Progress</span>
+                <span>${overallCollapsed ? '+' : '-'}</span>
+            </div>
+            <div class="map-ui-body">
+                 <div class="map-overall-stats">
+                    <div class="map-overall-row">In Progress: ${inProgressMaps}</div>
+                    <div class="map-overall-row">Maps: ${completedMaps} (+${completedMapsDPS} DPS)</div>
+                    <div class="map-overall-row">Zones: ${completedZonesCount} (+${completedZonesDPS} DPS)</div>
+                    <div class="map-overall-row"></div>
+                 </div>
+                 <div style="margin-top:5px; border-top:1px solid #333; padding-top:5px;">
+                    <div>Conquered: ${formatRange(conqueredList)}</div>
+                    <div>Roads: ${formatRange(roadList)}</div>
+                 </div>
             </div>
         `;
-        summaryContainer.innerHTML = summaryHtml;
+        stack.appendChild(overallCard);
+    }
+
+    toggleMapUIOverall() {
+        this.mapUIState.overallCollapsed = !this.mapUIState.overallCollapsed;
+        this.updateMapProgressDisplay();
+    }
+
+    toggleMapUIZone(z) {
+        this.mapUIState.zones[z] = !this.mapUIState.zones[z];
+        this.updateMapProgressDisplay();
     }
 
     renderMap() {
