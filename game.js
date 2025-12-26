@@ -1896,8 +1896,9 @@ class GameState {
             let total = pieces.filter(Boolean).length;
 
             let title = `Zone ${z + 1} - Mapping...`;
+            let npc = this.runners.find(r => r.isNPC && r.targetZone === z);
 
-            if (this.pendingRoads.has(z)) {
+            if (this.pendingRoads.has(z) || npc) {
                 title = `Zone ${z + 1} - ROAD construction underway...`;
             } else if (this.activeHideouts.has(z)) {
                 // Check if Fighting
