@@ -860,10 +860,22 @@ class GameState {
 
     awardZP(runner, amount, isSteal = false) {
         runner.zpCollected += amount;
-        let onRoad = this.conqueredZones.includes(runner.zone);
+        let onRoad = this.isRoadActiveAt(runner.zone, runner.globalLevel);
         if (!onRoad && !isSteal) {
             runner.durability += amount;
         }
+    }
+
+    isRoadActiveAt(zoneIdx, globalLevel) {
+        if (this.conqueredZones.includes(zoneIdx)) return true;
+        let npc = this.runners.find(r => r.isNPC);
+        if (npc && npc.targetZone >= zoneIdx) {
+            // If NPC has passed this zone completely
+            if (Math.floor((npc.globalLevel - 1) / LEVELS_PER_ZONE) > zoneIdx) return true;
+            // If NPC is in this zone and passed the level
+            if (Math.floor((npc.globalLevel - 1) / LEVELS_PER_ZONE) === zoneIdx && npc.globalLevel >= globalLevel) return true;
+        }
+        return false;
     }
 
     getRoadBonusRunnerCount() {
@@ -969,7 +981,7 @@ class GameState {
 
                 let currentZone = Math.floor((leader.globalLevel - 1) / LEVELS_PER_ZONE);
 
-                let isOnRoad = this.conqueredZones.includes(currentZone);
+                let isOnRoad = this.isRoadActiveAt(currentZone, leader.globalLevel);
                 let zonePieces = this.mapPieces[currentZone] || [];
                 let isMapped = zonePieces.length === 100 && zonePieces.every(Boolean);
 
@@ -1284,12 +1296,48 @@ class GameState {
         }
     }
 
+    getEffectiveRoadCount(globalLevel) {
+        let currentZone = Math.floor((globalLevel - 1) / LEVELS_PER_ZONE);
+        let count = this.conqueredZones.filter(z => z >= currentZone).length;
+
+        let npc = this.runners.find(r => r.isNPC);
+        if (npc && npc.targetZone >= currentZone) {
+            // 1. Target Zone Bonus (Always counts as a 'project in progress' providing a virtual road?)
+            // The prompt implies "as if 2 roads were completed" for Zone 1 when targeting Zone 2.
+            // This suggests the Target Zone itself contributes 1, plus any intermediate zones passed contribute 1.
+
+            // Check Target Zone
+            if (!this.conqueredZones.includes(npc.targetZone)) {
+                 // Does the target zone count only if we reached it?
+                 // Prompt: "entering zone 1 ... 8 waves".
+                 // This implies Target Zone 2 counts even while in Zone 1.
+                 count++;
+            }
+
+            // 2. Intermediate Zones (from currentZone up to targetZone - 1)
+            for (let z = currentZone; z < npc.targetZone; z++) {
+                if (!this.conqueredZones.includes(z)) {
+                    // Check if NPC covers this location
+                    // For intermediate zone 'z':
+                    // If NPC is in a higher zone (> z), it is fully covered.
+                    // If NPC is in same zone (== z), check level.
+                    let npcZone = Math.floor((npc.globalLevel - 1) / LEVELS_PER_ZONE);
+
+                    if (npcZone > z) {
+                        count++;
+                    } else if (npcZone === z && npc.globalLevel >= globalLevel) {
+                        count++;
+                    }
+                }
+            }
+        }
+        return count;
+    }
+
     getWavesForLevel(globalLevel) {
         if (globalLevel % 10 === 0) return 1;
 
-        let currentZone = Math.floor((globalLevel - 1) / LEVELS_PER_ZONE);
-        let applicableRoads = this.conqueredZones.filter(z => z >= currentZone).length;
-
+        let applicableRoads = this.getEffectiveRoadCount(globalLevel);
         let waves = WAVES_PER_LEVEL - applicableRoads;
         return Math.max(1, waves);
     }
@@ -1306,7 +1354,7 @@ class GameState {
         let roadReduction = 1.0;
 
         if (wave === totalWaves && (levelInZone % 10 === 0)) {
-            let applicableRoads = this.conqueredZones.filter(z => z >= zone).length;
+            let applicableRoads = this.getEffectiveRoadCount(globalLevel);
             if (applicableRoads > 0) {
                 let reduction = Math.min(applicableRoads * 0.10, 0.90);
                 roadReduction = 1.0 - reduction;
@@ -1685,7 +1733,7 @@ class GameState {
             let leader = group[0];
             let currentZone = Math.floor((leader.globalLevel - 1) / LEVELS_PER_ZONE);
 
-            let isOnRoad = this.conqueredZones.includes(currentZone);
+            let isOnRoad = this.isRoadActiveAt(currentZone, leader.globalLevel);
             let zonePieces = this.mapPieces[currentZone] || [];
             let isMapped = zonePieces.length === 100 && zonePieces.every(Boolean);
 
